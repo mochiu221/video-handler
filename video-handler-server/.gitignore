@@ -1,4 +1,6 @@
 /node_modules
 
+/dist
+
 environments/*
 !environments/.env.example
