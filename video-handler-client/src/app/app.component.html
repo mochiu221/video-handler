@@ -46,10 +46,8 @@
 		<section class="studio-grid">
 			<div class="studio-panel clip-panel"><div class="panel-title"><h2>Composition</h2><span>Main required</span></div>
 				<label class="section-label">Main upload video<select [(ngModel)]="mainVideoFileName"><option value="">Choose a video</option>@for (video of videos; track video.path) { <option [value]="video.name">{{ video.name }}</option> }</select></label>
-				<div class="section-title"><h3>Opening asset videos</h3><span>Optional</span></div>
-				@for (video of videoAssets; track video.path) { <label class="asset-choice"><input type="checkbox" [checked]="isAssetVideoSelected('opening', video)" (change)="toggleAssetVideo('opening', video)" />{{ video.name }}</label> } @empty { <p class="muted">No asset videos available.</p> }
-				<div class="section-title"><h3>Ending asset videos</h3><span>Optional</span></div>
-				@for (video of videoAssets; track video.path) { <label class="asset-choice"><input type="checkbox" [checked]="isAssetVideoSelected('ending', video)" (change)="toggleAssetVideo('ending', video)" />{{ video.name }}</label> } @empty { <p class="muted">No asset videos available.</p> }
+				<label class="section-label">Opening asset video<span>Optional</span><select [(ngModel)]="opening.videoFileName"><option value="">No opening video</option>@for (video of videoAssets; track video.path) { <option [value]="video.name">{{ video.name }}</option> }</select></label>
+				<label class="section-label">Ending asset video<span>Optional</span><select [(ngModel)]="ending.videoFileName"><option value="">No ending video</option>@for (video of videoAssets; track video.path) { <option [value]="video.name">{{ video.name }}</option> }</select></label>
 			</div>
 			<div class="studio-panel settings-panel"><div class="panel-title"><h2>Output settings</h2><span>Required</span></div>
 				@for (target of outputTargets; track $index; let index = $index) {
@@ -68,6 +66,6 @@
 
 	@if (activeView === 'merged') {
 		<section class="page-heading"><p class="eyebrow">Delivery</p><h1>Exported videos</h1><p>Finished merge outputs, ready to review and download.</p></section>
-		<section class="export-list">@for (file of mergedVideos; track file.path) { <article class="export-row"><video controls preload="metadata" [src]="fileUrl(file)"></video><div class="export-details"><strong>{{ file.name }}</strong><span>{{ file.duration ?? '?' }}s · {{ formatSize(file.size) }}</span><span>Updated {{ formatUpdatedAt(file.updatedAt) }}</span></div><div class="export-actions"><a [href]="fileUrl(file)" download>Download</a><button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('merged', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button></div></article> } @empty { <div class="empty-state">No merged videos yet.</div> }</section>
+		<section class="export-list">@for (file of mergedVideos; track file.path) { <article class="export-row"><video controls preload="metadata" [src]="fileUrl(file)"></video><div class="export-details"><strong>{{ file.name }}</strong><span>{{ file.duration !== undefined ? file.duration + 's · ' : '' }}{{ formatSize(file.size) }}</span><span>Updated {{ formatUpdatedAt(file.updatedAt) }}</span></div><div class="export-actions"><a [href]="fileUrl(file)" download>Download</a><button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('merged', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button></div></article> } @empty { <div class="empty-state">No merged videos yet.</div> }</section>
 	}
 </main>

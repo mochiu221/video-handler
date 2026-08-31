@@ -91,7 +91,7 @@ router.post("/merge-composition", async (request, response) => {
 	const streamProgress = request.query.progress === "true";
 
 	if (!openingSection || !mainSection || !endingSection || !requestedOutputs) {
-		response.status(400).json({ error: "main requires videoFileName; opening and ending require videoFileNames when provided; outputs require a unique suffix and options" });
+		response.status(400).json({ error: "main requires videoFileName; opening and ending require videoFileName when provided; outputs require a unique suffix and options" });
 		return;
 	}
 
@@ -135,14 +135,13 @@ type MainSection = { videoFileName: string; videoPath: string; images: MainImage
 function parseAssetSection(section: unknown): AssetSection | undefined {
 	if (section === undefined) return { videoPaths: [], images: [] };
 	if (typeof section !== "object" || section === null || Array.isArray(section)) return undefined;
-	const { videoFileNames, images } = section as { videoFileNames?: unknown; images?: unknown };
+	const { videoFileName, images } = section as { videoFileName?: unknown; images?: unknown };
 	const parsedImages = parseSectionImageFileNames(images);
-	if (!Array.isArray(videoFileNames) || videoFileNames.length === 0 || !parsedImages) {
+	const videoPath = compositionFilePath(CONFIG.upload.assetsFolder, videoFileName);
+	if (!videoPath || !parsedImages) {
 		return undefined;
 	}
-	const videoPaths = videoFileNames.map((fileName) => compositionFilePath(CONFIG.upload.assetsFolder, fileName));
-	if (videoPaths.some((videoPath) => videoPath === undefined)) return undefined;
-	return { videoPaths: videoPaths as string[], images: parsedImages };
+	return { videoPaths: [videoPath], images: parsedImages };
 }
 
 function parseMainSection(section: unknown): MainSection | undefined {

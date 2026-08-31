@@ -7,7 +7,7 @@ type FileResource = { name: string; path: string; size: number; updatedAt: strin
 type SectionImage = { imageFileName: string };
 type MainImage = { imageFileName: string; startTime: number; duration?: number };
 type OutputTarget = { suffix: string; width: number; height: number };
-type AssetSection = { videoFileNames: string[]; images: SectionImage[] };
+type AssetSection = { videoFileName: string; images: SectionImage[] };
 type View = 'videos' | 'assets' | 'merge' | 'merged';
 type MergeEditorMode = 'form' | 'json';
 type MergeCompositionRequest = {
@@ -32,9 +32,9 @@ export class AppComponent {
   assets: FileResource[] = [];
   mergedVideos: FileResource[] = [];
   mainVideoFileName = '';
-  opening: AssetSection = { videoFileNames: [], images: [] };
+  opening: AssetSection = { videoFileName: '', images: [] };
   mainImages: MainImage[] = [];
-  ending: AssetSection = { videoFileNames: [], images: [] };
+  ending: AssetSection = { videoFileName: '', images: [] };
   outputTargets: OutputTarget[] = [{ suffix: '_1080', width: 1920, height: 1080 }];
   mergeEditorMode: MergeEditorMode = 'form';
   mergeJson = '';
@@ -111,9 +111,9 @@ export class AppComponent {
       next: () => {
         if (type === 'videos' && this.mainVideoFileName === file.name) this.mainVideoFileName = '';
         if (type === 'assets') {
-          this.opening = { videoFileNames: this.opening.videoFileNames.filter((name) => name !== file.name), images: this.opening.images.filter((image) => image.imageFileName !== file.name) };
+          this.opening = { videoFileName: this.opening.videoFileName === file.name ? '' : this.opening.videoFileName, images: this.opening.images.filter((image) => image.imageFileName !== file.name) };
           this.mainImages = this.mainImages.filter((image) => image.imageFileName !== file.name);
-          this.ending = { videoFileNames: this.ending.videoFileNames.filter((name) => name !== file.name), images: this.ending.images.filter((image) => image.imageFileName !== file.name) };
+          this.ending = { videoFileName: this.ending.videoFileName === file.name ? '' : this.ending.videoFileName, images: this.ending.images.filter((image) => image.imageFileName !== file.name) };
         }
         this.loadFiles(type);
         this.deletingPath = null;
@@ -148,20 +148,6 @@ export class AppComponent {
     } else {
       this[section] = { ...this[section], images: this[section].images.filter((_, overlayIndex) => overlayIndex !== index) };
     }
-  }
-
-  isAssetVideoSelected(section: 'opening' | 'ending', video: FileResource): boolean {
-    return this[section].videoFileNames.includes(video.name);
-  }
-
-  toggleAssetVideo(section: 'opening' | 'ending', video: FileResource): void {
-    const videoFileNames = this[section].videoFileNames;
-    this[section] = {
-      ...this[section],
-      videoFileNames: videoFileNames.includes(video.name)
-        ? videoFileNames.filter((fileName) => fileName !== video.name)
-        : [...videoFileNames, video.name],
-    };
   }
 
   addOutputTarget(): void {
@@ -245,9 +231,9 @@ export class AppComponent {
 
   private mergeRequest(): MergeCompositionRequest {
     return {
-      ...(this.opening.videoFileNames.length || this.opening.images.length ? { opening: this.opening } : {}),
+      ...(this.opening.videoFileName ? { opening: this.opening } : {}),
       main: { videoFileName: this.mainVideoFileName, ...(this.mainImages.length ? { images: this.mainImages } : {}) },
-      ...(this.ending.videoFileNames.length || this.ending.images.length ? { ending: this.ending } : {}),
+      ...(this.ending.videoFileName ? { ending: this.ending } : {}),
       outputs: this.outputTargets.map((target) => ({
         suffix: target.suffix.trim(),
         options: { width: Number(target.width), height: Number(target.height) },
