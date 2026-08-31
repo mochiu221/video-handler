@@ -10,6 +10,8 @@ import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
 import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
 import { VideoImageOverlay } from "../models/VideoImageOverlay";
 
+type CompositionMainImage = { imagePath: string; startTime: number; duration?: number };
+
 const execFileAsync = promisify(execFile);
 
 export class FfmpegService {
@@ -99,8 +101,8 @@ export class FfmpegService {
     images: VideoImageOverlay[],
     onProgress?: (progress: number) => void,
   ): Promise<MergeVideosBatchResult> {
-    if (videoPaths.length < 2) {
-      throw new Error("At least two video paths are required");
+    if (videoPaths.length === 0) {
+      throw new Error("At least one video path is required");
     }
     if (outputs.length === 0) {
       throw new Error("At least one output is required");
@@ -187,7 +189,39 @@ export class FfmpegService {
     };
   }
 
+  async mergeVideoComposition(
+    openingVideoPaths: string[],
+    openingImagePaths: string[],
+    mainVideoPath: string,
+    mainImages: CompositionMainImage[],
+    endingVideoPaths: string[],
+    endingImagePaths: string[],
+    outputs: MergeVideoOutput[],
+    onProgress?: (progress: number) => void,
+  ): Promise<MergeVideosBatchResult> {
+    const openingDurationMs = await this.getTotalDurationMs(openingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath)));
+    const mainDurationMs = await this.getTotalDurationMs([this.resolveUploadPath(mainVideoPath)]);
+    const endingDurationMs = await this.getTotalDurationMs(endingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath))) + 0.1; // Add a small buffer to ensure the ending video is fully processed
+
+    const images = [
+      ...this.fullSectionImages(openingImagePaths, 0, openingDurationMs),
+      ...this.mainSectionImages(mainImages, openingDurationMs, mainDurationMs),
+      ...this.fullSectionImages(endingImagePaths, openingDurationMs + mainDurationMs, endingDurationMs),
+    ];
+
+    return this.mergeVideosToOutputs(
+      [...openingVideoPaths, mainVideoPath, ...endingVideoPaths],
+      outputs,
+      images,
+      onProgress,
+    );
+  }
+
   private async getTotalDurationMs(videoPaths: string[]): Promise<number> {
+    if (videoPaths.length === 0) {
+      return 0;
+    }
+
     const durations = await Promise.all(videoPaths.map(async (videoPath) => {
       const { stdout } = await execFileAsync(process.env.FFPROBE_PATH || "ffprobe", [
         "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoPath,
@@ -278,6 +312,38 @@ export class FfmpegService {
         throw new Error("Each image requires a path, a non-negative startTime, and a positive duration");
       }
     }
+  }
+
+  private offsetImages(
+    images: VideoImageOverlay[],
+    offsetMs: number,
+    segmentDurationMs: number,
+    sectionName: string,
+  ): VideoImageOverlay[] {
+    this.validateImages(images);
+    return images.map((image) => {
+      if ((image.startTime + image.duration) * 1000 > segmentDurationMs) {
+        throw new Error(`${sectionName} image overlays must finish within the ${sectionName} video duration`);
+      }
+      return { ...image, startTime: image.startTime + offsetMs / 1000 };
+    });
+  }
+
+  private fullSectionImages(imagePaths: string[], offsetMs: number, durationMs: number): VideoImageOverlay[] {
+    return imagePaths.map((imagePath) => ({ imagePath, startTime: offsetMs / 1000, duration: durationMs / 1000 }));
+  }
+
+  private mainSectionImages(images: CompositionMainImage[], offsetMs: number, durationMs: number): VideoImageOverlay[] {
+    return images.map((image) => {
+      if (!image.imagePath || image.startTime < 0) {
+        throw new Error("Each main image requires a path and a non-negative startTime");
+      }
+      const duration = image.duration ?? durationMs / 1000 - image.startTime;
+      if (duration <= 0 || (image.startTime + duration) * 1000 > durationMs) {
+        throw new Error("Main image overlays must finish within the main video duration");
+      }
+      return { imagePath: image.imagePath, startTime: image.startTime + offsetMs / 1000, duration };
+    });
   }
 }
 

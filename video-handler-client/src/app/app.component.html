@@ -44,21 +44,22 @@
 			</section>
 		} @else {
 		<section class="studio-grid">
-			<div class="studio-panel clip-panel"><div class="panel-title"><h2>Clip order</h2><span>{{ selectedVideos.length }} selected</span></div>
-				@for (video of selectedVideos; track video.path; let index = $index) {
-					<div class="clip-row"><span class="clip-index">{{ index + 1 }}</span><div><strong>{{ video.name }}</strong><small>{{ video.duration ?? '?' }} seconds</small></div><div class="row-actions"><button title="Move earlier" (click)="moveVideo(index, -1)">Up</button><button title="Move later" (click)="moveVideo(index, 1)">Down</button><button title="Remove" (click)="removeVideo(video)">Remove</button></div></div>
-				} @empty { <div class="empty-state">Select at least two clips from Videos or video Assets.</div> }
+			<div class="studio-panel clip-panel"><div class="panel-title"><h2>Composition</h2><span>Main required</span></div>
+				<label class="section-label">Main upload video<select [(ngModel)]="mainVideoFileName"><option value="">Choose a video</option>@for (video of videos; track video.path) { <option [value]="video.name">{{ video.name }}</option> }</select></label>
+				<div class="section-title"><h3>Opening asset videos</h3><span>Optional</span></div>
+				@for (video of videoAssets; track video.path) { <label class="asset-choice"><input type="checkbox" [checked]="isAssetVideoSelected('opening', video)" (change)="toggleAssetVideo('opening', video)" />{{ video.name }}</label> } @empty { <p class="muted">No asset videos available.</p> }
+				<div class="section-title"><h3>Ending asset videos</h3><span>Optional</span></div>
+				@for (video of videoAssets; track video.path) { <label class="asset-choice"><input type="checkbox" [checked]="isAssetVideoSelected('ending', video)" (change)="toggleAssetVideo('ending', video)" />{{ video.name }}</label> } @empty { <p class="muted">No asset videos available.</p> }
 			</div>
 			<div class="studio-panel settings-panel"><div class="panel-title"><h2>Output settings</h2><span>Required</span></div>
 				@for (target of outputTargets; track $index; let index = $index) {
-					<div class="output-target"><label>Output path<input type="text" [(ngModel)]="target.outputPath" placeholder="merged/filename.mp4" /></label><div class="dimension-fields"><label>Width<input type="number" min="1" [(ngModel)]="target.width" /></label><span>x</span><label>Height<input type="number" min="1" [(ngModel)]="target.height" /></label><button [disabled]="outputTargets.length === 1" (click)="removeOutputTarget(index)">Remove</button></div></div>
+					<div class="output-target"><label>Filename suffix<input type="text" [(ngModel)]="target.suffix" placeholder="_1080" /></label><div class="dimension-fields"><label>Width<input type="number" min="1" [(ngModel)]="target.width" /></label><span>x</span><label>Height<input type="number" min="1" [(ngModel)]="target.height" /></label><button [disabled]="outputTargets.length === 1" (click)="removeOutputTarget(index)">Remove</button></div></div>
 				}
 				<button class="add-output-button" (click)="addOutputTarget()">Add output size</button>
-				<div class="panel-title overlay-title"><h2>Image overlays</h2><button (click)="addOverlay()">Add overlay</button></div>
-				@for (overlay of overlays; track $index; let index = $index) {
-					<div class="overlay-row"><select [(ngModel)]="overlay.imagePath">@for (asset of imageAssets; track asset.path) { <option [value]="asset.path">{{ asset.name }}</option> }</select><input type="number" min="0" step="0.1" [(ngModel)]="overlay.startTime" aria-label="Overlay start time" /><input type="number" min="0.1" step="0.1" [(ngModel)]="overlay.duration" aria-label="Overlay duration" /><button (click)="removeOverlay(index)">Remove</button></div>
-				} @empty { <p class="muted">No overlays scheduled.</p> }
-				<button class="merge-button" [disabled]="selectedVideos.length < 2 || progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
+				<div class="overlay-section"><div class="panel-title overlay-title"><h2>Opening overlays</h2><button (click)="addOverlay('opening')">Add overlay</button></div>@for (image of opening.images; track $index; let index = $index) { <div class="overlay-row section-overlay"><select [(ngModel)]="image.imageFileName">@for (asset of imageAssets; track asset.path) { <option [value]="asset.name">{{ asset.name }}</option> }</select><button (click)="removeOverlay('opening', index)">Remove</button></div> } @empty { <p class="muted">No overlays scheduled.</p> }</div>
+				<div class="overlay-section"><div class="panel-title overlay-title"><h2>Main overlays</h2><button (click)="addOverlay('main')">Add overlay</button></div>@for (image of mainImages; track $index; let index = $index) { <div class="overlay-row"><select [(ngModel)]="image.imageFileName">@for (asset of imageAssets; track asset.path) { <option [value]="asset.name">{{ asset.name }}</option> }</select><input type="number" min="0" step="0.1" [(ngModel)]="image.startTime" aria-label="Overlay start time" /><input type="number" min="0.1" step="0.1" [(ngModel)]="image.duration" placeholder="Full main video" aria-label="Overlay duration" /><button (click)="removeOverlay('main', index)">Remove</button></div> } @empty { <p class="muted">No overlays scheduled.</p> }</div>
+				<div class="overlay-section"><div class="panel-title overlay-title"><h2>Ending overlays</h2><button (click)="addOverlay('ending')">Add overlay</button></div>@for (image of ending.images; track $index; let index = $index) { <div class="overlay-row section-overlay"><select [(ngModel)]="image.imageFileName">@for (asset of imageAssets; track asset.path) { <option [value]="asset.name">{{ asset.name }}</option> }</select><button (click)="removeOverlay('ending', index)">Remove</button></div> } @empty { <p class="muted">No overlays scheduled.</p> }</div>
+				<button class="merge-button" [disabled]="!mainVideoFileName || progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
 				@if (mergeStatus) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress ?? 100 }}%</strong></div><div class="progress-track"><span [style.width.%]="progress ?? 100"></span></div></div> }
 			</div>
 		</section>

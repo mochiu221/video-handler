@@ -4,11 +4,18 @@ import { FormsModule } from '@angular/forms';
 import { RouterOutlet } from '@angular/router';
 
 type FileResource = { name: string; path: string; size: number; updatedAt: string; duration?: number };
-type Overlay = { imagePath: string; startTime: number; duration: number };
-type OutputTarget = { outputPath: string; width: number; height: number };
+type SectionImage = { imageFileName: string };
+type MainImage = { imageFileName: string; startTime: number; duration?: number };
+type OutputTarget = { suffix: string; width: number; height: number };
+type AssetSection = { videoFileNames: string[]; images: SectionImage[] };
 type View = 'videos' | 'assets' | 'merge' | 'merged';
 type MergeEditorMode = 'form' | 'json';
-type MergeRequest = { videoPaths: string[]; images?: Overlay[]; outputs: { outputPath?: string; options: { width: number; height: number } }[] };
+type MergeCompositionRequest = {
+  opening?: AssetSection;
+  main: { videoFileName: string; images?: MainImage[] };
+  ending?: AssetSection;
+  outputs: { suffix: string; options: { width: number; height: number } }[];
+};
 
 @Component({
   selector: 'app-root',
@@ -25,8 +32,11 @@ export class AppComponent {
   assets: FileResource[] = [];
   mergedVideos: FileResource[] = [];
   selectedVideos: FileResource[] = [];
-  overlays: Overlay[] = [];
-  outputTargets: OutputTarget[] = [{ outputPath: '', width: 1280, height: 720 }];
+  mainVideoFileName = '';
+  opening: AssetSection = { videoFileNames: [], images: [] };
+  mainImages: MainImage[] = [];
+  ending: AssetSection = { videoFileNames: [], images: [] };
+  outputTargets: OutputTarget[] = [{ suffix: '_1080', width: 1920, height: 1080 }];
   mergeEditorMode: MergeEditorMode = 'form';
   mergeJson = '';
   progress: number | null = null;
@@ -54,6 +64,10 @@ export class AppComponent {
 
   get imageAssets(): FileResource[] {
     return this.assets.filter((asset) => /\.(png|jpe?g|webp)$/i.test(asset.name));
+  }
+
+  get videoAssets(): FileResource[] {
+    return this.assets.filter((asset) => this.isVideoAsset(asset));
   }
 
   loadFiles(type: 'videos' | 'assets' | 'merged'): void {
@@ -114,22 +128,44 @@ export class AppComponent {
     return file.duration !== undefined;
   }
 
-  addOverlay(): void {
+  addOverlay(section: 'opening' | 'main' | 'ending'): void {
     const asset = this.imageAssets[0];
     if (!asset) {
       this.error = 'Upload an image asset before adding an overlay.';
       return;
     }
-    this.overlays = [...this.overlays, { imagePath: asset.path, startTime: 0, duration: 3 }];
+    if (section === 'main') {
+      this.mainImages = [...this.mainImages, { imageFileName: asset.name, startTime: 0 }];
+    } else {
+      this[section] = { ...this[section], images: [...this[section].images, { imageFileName: asset.name }] };
+    }
   }
 
-  removeOverlay(index: number): void {
-    this.overlays = this.overlays.filter((_, overlayIndex) => overlayIndex !== index);
+  removeOverlay(section: 'opening' | 'main' | 'ending', index: number): void {
+    if (section === 'main') {
+      this.mainImages = this.mainImages.filter((_, overlayIndex) => overlayIndex !== index);
+    } else {
+      this[section] = { ...this[section], images: this[section].images.filter((_, overlayIndex) => overlayIndex !== index) };
+    }
+  }
+
+  isAssetVideoSelected(section: 'opening' | 'ending', video: FileResource): boolean {
+    return this[section].videoFileNames.includes(video.name);
+  }
+
+  toggleAssetVideo(section: 'opening' | 'ending', video: FileResource): void {
+    const videoFileNames = this[section].videoFileNames;
+    this[section] = {
+      ...this[section],
+      videoFileNames: videoFileNames.includes(video.name)
+        ? videoFileNames.filter((fileName) => fileName !== video.name)
+        : [...videoFileNames, video.name],
+    };
   }
 
   addOutputTarget(): void {
-    const previous = this.outputTargets.at(-1) || { outputPath: '', width: 1280, height: 720 };
-    this.outputTargets = [...this.outputTargets, { ...previous, outputPath: '' }];
+    const previous = this.outputTargets.at(-1) || { suffix: '_1080', width: 1920, height: 1080 };
+    this.outputTargets = [...this.outputTargets, { ...previous, suffix: '' }];
   }
 
   removeOutputTarget(index: number): void {
@@ -147,7 +183,7 @@ export class AppComponent {
   async merge(): Promise<void> {
     if (this.progress !== null) return;
 
-    let mergeRequest: MergeRequest;
+    let mergeRequest: MergeCompositionRequest;
     try {
       mergeRequest = this.mergeEditorMode === 'json'
         ? this.parseMergeJson()
@@ -156,8 +192,8 @@ export class AppComponent {
       this.error = error instanceof Error ? error.message : 'Invalid merge JSON.';
       return;
     }
-    if (mergeRequest.videoPaths.length < 2) {
-      this.error = 'Select or provide at least two video paths.';
+    if (!mergeRequest.main.videoFileName) {
+      this.error = 'Select the required main video.';
       return;
     }
 
@@ -165,7 +201,7 @@ export class AppComponent {
     this.mergeStatus = 'Preparing media';
     this.error = '';
     try {
-      const response = await fetch(`${this.apiUrl}/video/merge?progress=true`, {
+      const response = await fetch(`${this.apiUrl}/video/merge-composition?progress=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mergeRequest),
@@ -206,25 +242,26 @@ export class AppComponent {
     }
   }
 
-  private mergeRequest(): MergeRequest {
+  private mergeRequest(): MergeCompositionRequest {
     return {
-      videoPaths: this.selectedVideos.map((video) => video.path),
-      images: this.overlays,
+      ...(this.opening.videoFileNames.length || this.opening.images.length ? { opening: this.opening } : {}),
+      main: { videoFileName: this.mainVideoFileName, ...(this.mainImages.length ? { images: this.mainImages } : {}) },
+      ...(this.ending.videoFileNames.length || this.ending.images.length ? { ending: this.ending } : {}),
       outputs: this.outputTargets.map((target) => ({
-        ...(target.outputPath.trim() ? { outputPath: target.outputPath.trim() } : {}),
+        suffix: target.suffix.trim(),
         options: { width: Number(target.width), height: Number(target.height) },
       })),
     };
   }
 
-  private parseMergeJson(): MergeRequest {
-    const request = JSON.parse(this.mergeJson) as MergeRequest;
-    if (!Array.isArray(request.videoPaths) || !request.videoPaths.every((path) => typeof path === 'string')) {
-      throw new Error('Merge JSON must include a videoPaths array of strings.');
+  private parseMergeJson(): MergeCompositionRequest {
+    const request = JSON.parse(this.mergeJson) as MergeCompositionRequest;
+    if (!request.main || typeof request.main.videoFileName !== 'string') {
+      throw new Error('Merge JSON must include main.videoFileName.');
     }
-    if ((request.images !== undefined && !Array.isArray(request.images))
-      || !Array.isArray(request.outputs) || request.outputs.length === 0 || request.outputs.some((output) =>
-      !output.options || !Number.isFinite(output.options.width) || !Number.isFinite(output.options.height)
+    if (!Array.isArray(request.outputs) || request.outputs.length === 0 || request.outputs.some((output) =>
+      typeof output.suffix !== 'string' || !output.suffix || !output.options
+      || !Number.isFinite(output.options.width) || !Number.isFinite(output.options.height)
       )) {
       throw new Error('Merge JSON must include an outputs array with options for each output.');
     }
