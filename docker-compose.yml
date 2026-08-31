@@ -1,0 +1,37 @@
+services:
+  video-handler-client:
+    build:
+      context: ./video-handler-client
+    ports:
+      - "4200:80"
+    depends_on:
+      video-handler-server:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
+  video-handler-server:
+    build:
+      context: ./video-handler-server
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - video-handler-uploads:/app/uploads
+    mem_limit: 2g
+    mem_reservation: 512m
+    cpus: 4
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  video-handler-uploads:

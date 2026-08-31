@@ -1,12 +1,15 @@
 import express from "express";
+import path from "node:path";
 import uploadsRouter from "./routes/uploads";
 import videoRouter from "./routes/video";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
+const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
 
 app.use(express.json());
 
+app.use("/api/uploads/file", express.static(uploadDirectory));
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/video", videoRouter);
 

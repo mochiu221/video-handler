@@ -1,1 +1,69 @@
-<router-outlet />
+<main class="app-shell">
+	<header class="topbar">
+		<div class="brand"><span class="brand-mark">VH</span><span>Video Handler</span></div>
+		<nav aria-label="Workspace navigation">
+			<button [class.active]="activeView === 'videos'" (click)="setView('videos')">Videos</button>
+			<button [class.active]="activeView === 'assets'" (click)="setView('assets')">Assets</button>
+			<button [class.active]="activeView === 'merge'" (click)="setView('merge')">Merge Studio</button>
+			<button [class.active]="activeView === 'merged'" (click)="setView('merged')">Exports</button>
+		</nav>
+	</header>
+
+	@if (error) { <div class="notice error">{{ error }}<button (click)="error = ''">Dismiss</button></div> }
+
+	@if (activeView === 'videos' || activeView === 'assets') {
+		<section class="page-heading">
+			<p class="eyebrow">Media library</p>
+			<h1>{{ activeView === 'videos' ? 'Source videos' : 'Creative assets' }}</h1>
+			<p>{{ activeView === 'videos' ? 'Add clips, inspect duration, and select them in the merge studio.' : 'Upload video intros, outros, and images for timed overlays.' }}</p>
+		</section>
+		<section class="library-layout">
+			<label class="upload-zone">
+				<input type="file" [accept]="activeView === 'videos' ? 'video/*' : 'image/*,video/*'" (change)="upload(activeView === 'videos' ? 'video' : 'asset', $event)" />
+				<span class="upload-symbol">+</span><strong>Choose {{ activeView === 'videos' ? 'video' : 'asset' }}</strong>
+				<small>{{ uploading ? 'Uploading...' : 'Files are saved to your media library' }}</small>
+			</label>
+			<div class="media-list">
+				@for (file of (activeView === 'videos' ? videos : assets); track file.path) {
+					<article class="media-row">
+						<div class="file-badge">{{ activeView === 'videos' || isVideoAsset(file) ? 'VID' : 'IMG' }}</div>
+						<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span></div>
+						@if (activeView === 'videos' || isVideoAsset(file)) { <button class="select-button" [class.selected]="isSelected(file)" (click)="toggleVideo(file)">{{ isSelected(file) ? 'Selected' : 'Select' }}</button> }
+					</article>
+				} @empty { <div class="empty-state">No files yet.</div> }
+			</div>
+		</section>
+	}
+
+	@if (activeView === 'merge') {
+		<section class="page-heading merge-heading"><p class="eyebrow">Assembly</p><h1>Merge studio</h1><p>Arrange clips from Videos and video Assets, set the delivery canvas, and schedule image overlays.</p></section>
+		<div class="editor-mode" role="group" aria-label="Merge editor mode"><button [class.active]="mergeEditorMode === 'form'" (click)="setMergeEditorMode('form')">Form</button><button [class.active]="mergeEditorMode === 'json'" (click)="setMergeEditorMode('json')">JSON</button></div>
+		@if (mergeEditorMode === 'json') {
+			<section class="json-editor"><label for="merge-json">Merge request JSON</label><textarea id="merge-json" [(ngModel)]="mergeJson" spellcheck="false"></textarea><button class="merge-button" [disabled]="progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
+				@if (progress !== null) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress }}%</strong></div><div class="progress-track"><span [style.width.%]="progress"></span></div></div> }
+			</section>
+		} @else {
+		<section class="studio-grid">
+			<div class="studio-panel clip-panel"><div class="panel-title"><h2>Clip order</h2><span>{{ selectedVideos.length }} selected</span></div>
+				@for (video of selectedVideos; track video.path; let index = $index) {
+					<div class="clip-row"><span class="clip-index">{{ index + 1 }}</span><div><strong>{{ video.name }}</strong><small>{{ video.duration ?? '?' }} seconds</small></div><div class="row-actions"><button title="Move earlier" (click)="moveVideo(index, -1)">Up</button><button title="Move later" (click)="moveVideo(index, 1)">Down</button><button title="Remove" (click)="removeVideo(video)">Remove</button></div></div>
+				} @empty { <div class="empty-state">Select at least two clips from Videos or video Assets.</div> }
+			</div>
+			<div class="studio-panel settings-panel"><div class="panel-title"><h2>Output settings</h2><span>Required</span></div>
+				<div class="dimension-fields"><label>Width<input type="number" min="1" [(ngModel)]="width" /></label><span>x</span><label>Height<input type="number" min="1" [(ngModel)]="height" /></label></div>
+				<div class="panel-title overlay-title"><h2>Image overlays</h2><button (click)="addOverlay()">Add overlay</button></div>
+				@for (overlay of overlays; track $index; let index = $index) {
+					<div class="overlay-row"><select [(ngModel)]="overlay.imagePath">@for (asset of imageAssets; track asset.path) { <option [value]="asset.path">{{ asset.name }}</option> }</select><input type="number" min="0" step="0.1" [(ngModel)]="overlay.startTime" aria-label="Overlay start time" /><input type="number" min="0.1" step="0.1" [(ngModel)]="overlay.duration" aria-label="Overlay duration" /><button (click)="removeOverlay(index)">Remove</button></div>
+				} @empty { <p class="muted">No overlays scheduled.</p> }
+				<button class="merge-button" [disabled]="selectedVideos.length < 2 || progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
+				@if (progress !== null) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress }}%</strong></div><div class="progress-track"><span [style.width.%]="progress"></span></div></div> }
+			</div>
+		</section>
+		}
+	}
+
+	@if (activeView === 'merged') {
+		<section class="page-heading"><p class="eyebrow">Delivery</p><h1>Exported videos</h1><p>Finished merge outputs, ready to review and download.</p></section>
+		<section class="export-grid">@for (file of mergedVideos; track file.path) { <article class="export-card"><video controls preload="metadata" [src]="fileUrl(file)"></video><div><strong>{{ file.name }}</strong><span>{{ file.duration ?? '?' }}s · {{ formatSize(file.size) }}</span></div><a [href]="fileUrl(file)" download>Download</a></article> } @empty { <div class="empty-state">No merged videos yet.</div> }</section>
+	}
+</main>

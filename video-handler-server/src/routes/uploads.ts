@@ -19,19 +19,21 @@ mkdirSync(videosDirectory, { recursive: true });
 mkdirSync(assetsDirectory, { recursive: true });
 mkdirSync(mergedVideosDirectory, { recursive: true });
 
-function createUpload(destination: string) {
+function createUpload(destination: string, preserveOriginalName = false) {
   return multer({
 	storage: multer.diskStorage({
 		destination,
 		filename: (_request, file, callback) => {
-			callback(null, `${randomUUID()}${path.extname(file.originalname)}`);
+			callback(null, preserveOriginalName
+				? path.basename(file.originalname)
+				: `${randomUUID()}${path.extname(file.originalname)}`);
 		},
 	}),
   });
 }
 
 const videoUpload = createUpload(videosDirectory);
-const assetUpload = createUpload(assetsDirectory);
+const assetUpload = createUpload(assetsDirectory, true);
 
 const directories = {
 	videos: videosDirectory,

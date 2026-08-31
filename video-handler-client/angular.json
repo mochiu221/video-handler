@@ -41,8 +41,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "2kB",
-                  "maximumError": "4kB"
+                  "maximumWarning": "6kB",
+                  "maximumError": "8kB"
                 }
               ],
               "outputHashing": "all"
@@ -62,7 +62,8 @@
               "buildTarget": "video-handler-client:build:production"
             },
             "development": {
-              "buildTarget": "video-handler-client:build:development"
+              "buildTarget": "video-handler-client:build:development",
+              "proxyConfig": "proxy.conf.json"
             }
           },
           "defaultConfiguration": "development"

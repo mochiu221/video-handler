@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -18,6 +18,7 @@ export class FfmpegService {
     videoPaths: string[],
     outputPath: string | undefined,
     options: MergeVideosOptions,
+    onProgress?: (progress: number) => void,
   ): Promise<MergeVideosResult> {
     if (videoPaths.length < 2) {
       throw new Error("At least two video paths are required");
@@ -31,6 +32,7 @@ export class FfmpegService {
       : path.join(this.mergedOutputDirectory, `${randomUUID()}.mp4`);
     await mkdir(path.dirname(destination), { recursive: true });
     const resolvedVideoPaths = videoPaths.map((videoPath) => this.resolveUploadPath(videoPath));
+    const totalDurationMs = await this.getTotalDurationMs(resolvedVideoPaths);
     const mergeArguments = ["-y"];
     const filterParts: string[] = [];
     const concatInputs: string[] = [];
@@ -52,7 +54,7 @@ export class FfmpegService {
       const outputLabel = `overlayVideo${index}`;
       const endTime = image.startTime + image.duration;
 
-      mergeArguments.push("-loop", "1", "-framerate", "30", "-t", String(endTime), "-i", this.resolveUploadPath(image.imagePath));
+      mergeArguments.push("-loop", "1", "-framerate", "25", "-t", String(endTime), "-i", this.resolveUploadPath(image.imagePath));
       filterParts.push(
         `[${inputIndex}:v]scale=${options.width}:${options.height},setsar=1[image${index}]`,
         `[${currentVideo}][image${index}]overlay=0:0:enable='between(t,${image.startTime},${endTime})':eof_action=pass:repeatlast=0[${outputLabel}]`,
@@ -61,6 +63,9 @@ export class FfmpegService {
     }
 
     mergeArguments.push(
+      "-progress",
+      "pipe:1",
+      "-nostats",
       "-filter_complex",
       filterParts.join(";"),
       "-map",
@@ -77,10 +82,73 @@ export class FfmpegService {
     );
     console.log("Executing ffmpeg command:", this.ffmpegPath, mergeArguments.join(" "));
     const startTime = performance.now();
-    await execFileAsync(this.ffmpegPath, mergeArguments);
+    await this.runFfmpeg(mergeArguments, totalDurationMs, onProgress);
     const runTimeMs = Math.round(performance.now() - startTime);
 
     return { path: destination, runTimeMs };
+  }
+
+  private async getTotalDurationMs(videoPaths: string[]): Promise<number> {
+    const durations = await Promise.all(videoPaths.map(async (videoPath) => {
+      const { stdout } = await execFileAsync(process.env.FFPROBE_PATH || "ffprobe", [
+        "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoPath,
+      ]);
+      const durationMs = Number.parseFloat(stdout) * 1000;
+
+      if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        throw new Error(`Unable to determine duration for ${videoPath}`);
+      }
+
+      return durationMs;
+    }));
+
+    return durations.reduce((total, duration) => total + duration, 0);
+  }
+
+  private runFfmpeg(
+    argumentsList: string[],
+    totalDurationMs: number,
+    onProgress?: (progress: number) => void,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const process = spawn(this.ffmpegPath, argumentsList);
+      let stderr = "";
+      let stdout = "";
+      let lastProgress = -1;
+
+      process.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+        const lines = stdout.split(/\r?\n/);
+        stdout = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("out_time_ms=") || !onProgress) {
+            continue;
+          }
+
+          const outputTimeMs = Number.parseInt(line.slice("out_time_ms=".length), 10) / 1000;
+          const progress = Math.min(99, Math.floor((outputTimeMs / totalDurationMs) * 100));
+
+          if (Number.isFinite(progress) && progress > lastProgress) {
+            lastProgress = progress;
+            onProgress(progress);
+          }
+        }
+      });
+      process.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      process.on("error", reject);
+      process.on("close", (code) => {
+        if (code === 0) {
+          onProgress?.(100);
+          resolve();
+          return;
+        }
+
+        reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
+      });
+    });
   }
 
   private resolveUploadPath(filePath: string): string {
