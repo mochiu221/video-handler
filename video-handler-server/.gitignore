@@ -2,5 +2,7 @@
 
 /dist
 
+/uploads
+
 environments/*
 !environments/.env.example
