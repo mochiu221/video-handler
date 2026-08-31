@@ -31,7 +31,6 @@ export class AppComponent {
   videos: FileResource[] = [];
   assets: FileResource[] = [];
   mergedVideos: FileResource[] = [];
-  selectedVideos: FileResource[] = [];
   mainVideoFileName = '';
   opening: AssetSection = { videoFileNames: [], images: [] };
   mainImages: MainImage[] = [];
@@ -43,6 +42,7 @@ export class AppComponent {
   mergeStatus = '';
   error = '';
   uploading: 'video' | 'asset' | null = null;
+  deletingPath: string | null = null;
 
   constructor() {
     this.refreshAll();
@@ -102,26 +102,27 @@ export class AppComponent {
     });
   }
 
-  isSelected(video: FileResource): boolean {
-    return this.selectedVideos.some((selected) => selected.path === video.path);
-  }
+  deleteFile(type: 'videos' | 'assets' | 'merged', file: FileResource): void {
+    if (this.deletingPath || !confirm(`Delete ${file.name}?`)) return;
 
-  toggleVideo(video: FileResource): void {
-    this.selectedVideos = this.isSelected(video)
-      ? this.selectedVideos.filter((selected) => selected.path !== video.path)
-      : [...this.selectedVideos, video];
-  }
-
-  moveVideo(index: number, direction: number): void {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= this.selectedVideos.length) return;
-    const ordered = [...this.selectedVideos];
-    [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
-    this.selectedVideos = ordered;
-  }
-
-  removeVideo(video: FileResource): void {
-    this.selectedVideos = this.selectedVideos.filter((selected) => selected.path !== video.path);
+    this.deletingPath = file.path;
+    this.error = '';
+    this.http.delete(`${this.apiUrl}/uploads/file/${type}/${encodeURIComponent(file.name)}`).subscribe({
+      next: () => {
+        if (type === 'videos' && this.mainVideoFileName === file.name) this.mainVideoFileName = '';
+        if (type === 'assets') {
+          this.opening = { videoFileNames: this.opening.videoFileNames.filter((name) => name !== file.name), images: this.opening.images.filter((image) => image.imageFileName !== file.name) };
+          this.mainImages = this.mainImages.filter((image) => image.imageFileName !== file.name);
+          this.ending = { videoFileNames: this.ending.videoFileNames.filter((name) => name !== file.name), images: this.ending.images.filter((image) => image.imageFileName !== file.name) };
+        }
+        this.loadFiles(type);
+        this.deletingPath = null;
+      },
+      error: () => {
+        this.error = `Could not delete ${file.name}.`;
+        this.deletingPath = null;
+      },
+    });
   }
 
   isVideoAsset(file: FileResource): boolean {

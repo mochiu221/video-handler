@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
@@ -89,6 +89,28 @@ router.get("/list-files/:type", async (request, response) => {
 		}));
 
 	response.json(files);
+});
+
+router.delete("/file/:type/:fileName", async (request, response) => {
+	const directory = directories[request.params.type as keyof typeof directories];
+	const { fileName } = request.params;
+
+	if (!directory) {
+		response.status(400).json({ error: "type must be videos, assets, or merged" });
+		return;
+	}
+	if (!fileName || path.basename(fileName) !== fileName) {
+		response.status(400).json({ error: "fileName must be a file name" });
+		return;
+	}
+
+	try {
+		await rm(path.join(directory, fileName));
+		response.status(204).end();
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		response.status(code === "ENOENT" ? 404 : 500).json({ error: code === "ENOENT" ? "File not found" : "Unable to delete file" });
+	}
 });
 
 router.post("/upload-video", videoUpload.single("file"), (request, response) => {

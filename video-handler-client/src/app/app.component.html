@@ -15,7 +15,7 @@
 		<section class="page-heading">
 			<p class="eyebrow">Media library</p>
 			<h1>{{ activeView === 'videos' ? 'Source videos' : 'Creative assets' }}</h1>
-			<p>{{ activeView === 'videos' ? 'Add clips, inspect duration, and select them in the merge studio.' : 'Upload video intros, outros, and images for timed overlays.' }}</p>
+			<p>{{ activeView === 'videos' ? 'Add main videos for your merge compositions.' : 'Upload video intros, outros, and images for timed overlays.' }}</p>
 		</section>
 		<section class="library-layout">
 			<label class="upload-zone">
@@ -28,7 +28,7 @@
 					<article class="media-row">
 						<div class="file-badge">{{ activeView === 'videos' || isVideoAsset(file) ? 'VID' : 'IMG' }}</div>
 						<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span></div>
-						@if (activeView === 'videos' || isVideoAsset(file)) { <button class="select-button" [class.selected]="isSelected(file)" (click)="toggleVideo(file)">{{ isSelected(file) ? 'Selected' : 'Select' }}</button> }
+						<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile(activeView === 'videos' ? 'videos' : 'assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
 					</article>
 				} @empty { <div class="empty-state">No files yet.</div> }
 			</div>
@@ -68,6 +68,6 @@
 
 	@if (activeView === 'merged') {
 		<section class="page-heading"><p class="eyebrow">Delivery</p><h1>Exported videos</h1><p>Finished merge outputs, ready to review and download.</p></section>
-		<section class="export-grid">@for (file of mergedVideos; track file.path) { <article class="export-card"><video controls preload="metadata" [src]="fileUrl(file)"></video><div><strong>{{ file.name }}</strong><span>{{ file.duration ?? '?' }}s · {{ formatSize(file.size) }}</span></div><a [href]="fileUrl(file)" download>Download</a></article> } @empty { <div class="empty-state">No merged videos yet.</div> }</section>
+		<section class="export-list">@for (file of mergedVideos; track file.path) { <article class="export-row"><video controls preload="metadata" [src]="fileUrl(file)"></video><div class="export-details"><strong>{{ file.name }}</strong><span>{{ file.duration ?? '?' }}s · {{ formatSize(file.size) }}</span></div><div class="export-actions"><a [href]="fileUrl(file)" download>Download</a><button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('merged', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button></div></article> } @empty { <div class="empty-state">No merged videos yet.</div> }</section>
 	}
 </main>
