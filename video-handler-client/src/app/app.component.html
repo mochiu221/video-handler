@@ -40,7 +40,7 @@
 		<div class="editor-mode" role="group" aria-label="Merge editor mode"><button [class.active]="mergeEditorMode === 'form'" (click)="setMergeEditorMode('form')">Form</button><button [class.active]="mergeEditorMode === 'json'" (click)="setMergeEditorMode('json')">JSON</button></div>
 		@if (mergeEditorMode === 'json') {
 			<section class="json-editor"><label for="merge-json">Merge request JSON</label><textarea id="merge-json" [(ngModel)]="mergeJson" spellcheck="false"></textarea><button class="merge-button" [disabled]="progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
-				@if (progress !== null) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress }}%</strong></div><div class="progress-track"><span [style.width.%]="progress"></span></div></div> }
+				@if (mergeStatus) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress ?? 100 }}%</strong></div><div class="progress-track"><span [style.width.%]="progress ?? 100"></span></div></div> }
 			</section>
 		} @else {
 		<section class="studio-grid">
@@ -56,7 +56,7 @@
 					<div class="overlay-row"><select [(ngModel)]="overlay.imagePath">@for (asset of imageAssets; track asset.path) { <option [value]="asset.path">{{ asset.name }}</option> }</select><input type="number" min="0" step="0.1" [(ngModel)]="overlay.startTime" aria-label="Overlay start time" /><input type="number" min="0.1" step="0.1" [(ngModel)]="overlay.duration" aria-label="Overlay duration" /><button (click)="removeOverlay(index)">Remove</button></div>
 				} @empty { <p class="muted">No overlays scheduled.</p> }
 				<button class="merge-button" [disabled]="selectedVideos.length < 2 || progress !== null" (click)="merge()">{{ progress === null ? 'Merge videos' : 'Merging...' }}</button>
-				@if (progress !== null) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress }}%</strong></div><div class="progress-track"><span [style.width.%]="progress"></span></div></div> }
+				@if (mergeStatus) { <div class="progress-block"><div class="progress-label"><span>{{ mergeStatus }}</span><strong>{{ progress ?? 100 }}%</strong></div><div class="progress-track"><span [style.width.%]="progress ?? 100"></span></div></div> }
 			</div>
 		</section>
 		}

@@ -174,6 +174,7 @@ export class AppComponent {
       }
     } catch (error) {
       this.error = error instanceof Error ? error.message : 'Merge failed.';
+      this.mergeStatus = '';
     } finally {
       this.progress = null;
     }
