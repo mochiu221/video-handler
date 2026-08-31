@@ -88,6 +88,7 @@ router.get("/list-files/:type", async (request, response) => {
 			};
 		}));
 
+	files.sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
 	response.json(files);
 });
 

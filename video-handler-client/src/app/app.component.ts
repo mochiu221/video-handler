@@ -276,4 +276,8 @@ export class AppComponent {
   formatSize(bytes: number): string {
     return bytes < 1_000_000 ? `${Math.round(bytes / 1_000)} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`;
   }
+
+  formatUpdatedAt(updatedAt: string): string {
+    return new Date(updatedAt).toLocaleString();
+  }
 }
