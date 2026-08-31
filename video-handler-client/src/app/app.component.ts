@@ -5,9 +5,10 @@ import { RouterOutlet } from '@angular/router';
 
 type FileResource = { name: string; path: string; size: number; updatedAt: string; duration?: number };
 type Overlay = { imagePath: string; startTime: number; duration: number };
+type OutputTarget = { outputPath: string; width: number; height: number };
 type View = 'videos' | 'assets' | 'merge' | 'merged';
 type MergeEditorMode = 'form' | 'json';
-type MergeRequest = { videoPaths: string[]; options: { width: number; height: number; images: Overlay[] } };
+type MergeRequest = { videoPaths: string[]; images?: Overlay[]; outputs: { outputPath?: string; options: { width: number; height: number } }[] };
 
 @Component({
   selector: 'app-root',
@@ -25,8 +26,7 @@ export class AppComponent {
   mergedVideos: FileResource[] = [];
   selectedVideos: FileResource[] = [];
   overlays: Overlay[] = [];
-  width = 1280;
-  height = 720;
+  outputTargets: OutputTarget[] = [{ outputPath: '', width: 1280, height: 720 }];
   mergeEditorMode: MergeEditorMode = 'form';
   mergeJson = '';
   progress: number | null = null;
@@ -127,6 +127,17 @@ export class AppComponent {
     this.overlays = this.overlays.filter((_, overlayIndex) => overlayIndex !== index);
   }
 
+  addOutputTarget(): void {
+    const previous = this.outputTargets.at(-1) || { outputPath: '', width: 1280, height: 720 };
+    this.outputTargets = [...this.outputTargets, { ...previous, outputPath: '' }];
+  }
+
+  removeOutputTarget(index: number): void {
+    if (this.outputTargets.length > 1) {
+      this.outputTargets = this.outputTargets.filter((_, targetIndex) => targetIndex !== index);
+    }
+  }
+
   setMergeEditorMode(mode: MergeEditorMode): void {
     if (mode === 'json') this.mergeJson = JSON.stringify(this.mergeRequest(), null, 2);
     this.mergeEditorMode = mode;
@@ -198,7 +209,11 @@ export class AppComponent {
   private mergeRequest(): MergeRequest {
     return {
       videoPaths: this.selectedVideos.map((video) => video.path),
-      options: { width: Number(this.width), height: Number(this.height), images: this.overlays },
+      images: this.overlays,
+      outputs: this.outputTargets.map((target) => ({
+        ...(target.outputPath.trim() ? { outputPath: target.outputPath.trim() } : {}),
+        options: { width: Number(target.width), height: Number(target.height) },
+      })),
     };
   }
 
@@ -207,9 +222,11 @@ export class AppComponent {
     if (!Array.isArray(request.videoPaths) || !request.videoPaths.every((path) => typeof path === 'string')) {
       throw new Error('Merge JSON must include a videoPaths array of strings.');
     }
-    if (!request.options || !Number.isFinite(request.options.width) || !Number.isFinite(request.options.height)
-      || !Array.isArray(request.options.images)) {
-      throw new Error('Merge JSON must include options with width, height, and images.');
+    if ((request.images !== undefined && !Array.isArray(request.images))
+      || !Array.isArray(request.outputs) || request.outputs.length === 0 || request.outputs.some((output) =>
+      !output.options || !Number.isFinite(output.options.width) || !Number.isFinite(output.options.height)
+      )) {
+      throw new Error('Merge JSON must include an outputs array with options for each output.');
     }
     return request;
   }

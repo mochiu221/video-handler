@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 import { MergeVideosOptions } from "../models/MergeVideosOptions";
 import { CONFIG } from "../config";
 import { MergeVideosResult } from "../models/request-response/MergeVideosResult";
+import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
+import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
+import { VideoImageOverlay } from "../models/VideoImageOverlay";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +21,7 @@ export class FfmpegService {
     videoPaths: string[],
     outputPath: string | undefined,
     options: MergeVideosOptions,
+    images: VideoImageOverlay[] = [],
     onProgress?: (progress: number) => void,
   ): Promise<MergeVideosResult> {
     if (videoPaths.length < 2) {
@@ -25,6 +29,7 @@ export class FfmpegService {
     }
 
     this.validateOptions(options);
+  this.validateImages(images);
     await mkdir(this.mergedOutputDirectory, { recursive: true });
 
     const destination = outputPath
@@ -49,7 +54,7 @@ export class FfmpegService {
     filterParts.push(`${concatInputs.join("")}concat=n=${videoPaths.length}:v=1:a=1[mergedVideo][audio]`);
     let currentVideo = "mergedVideo";
 
-    for (const [index, image] of (options.images || []).entries()) {
+    for (const [index, image] of images.entries()) {
       const inputIndex = videoPaths.length + index;
       const outputLabel = `overlayVideo${index}`;
       const endTime = image.startTime + image.duration;
@@ -86,6 +91,100 @@ export class FfmpegService {
     const runTimeMs = Math.round(performance.now() - startTime);
 
     return { path: destination, runTimeMs };
+  }
+
+  async mergeVideosToOutputs(
+    videoPaths: string[],
+    outputs: MergeVideoOutput[],
+    images: VideoImageOverlay[],
+    onProgress?: (progress: number) => void,
+  ): Promise<MergeVideosBatchResult> {
+    if (videoPaths.length < 2) {
+      throw new Error("At least two video paths are required");
+    }
+    if (outputs.length === 0) {
+      throw new Error("At least one output is required");
+    }
+
+    for (const output of outputs) {
+      this.validateOptions(output.options);
+    }
+    this.validateImages(images);
+
+    await mkdir(this.mergedOutputDirectory, { recursive: true });
+    const destinations = outputs.map((output) => output.outputPath
+      ? this.resolveUploadPath(output.outputPath)
+      : path.join(this.mergedOutputDirectory, `${randomUUID()}.mp4`));
+    if (new Set(destinations).size !== destinations.length) {
+      throw new Error("Each output must have a unique outputPath");
+    }
+    await Promise.all(destinations.map((destination) => mkdir(path.dirname(destination), { recursive: true })));
+
+    const resolvedVideoPaths = videoPaths.map((videoPath) => this.resolveUploadPath(videoPath));
+    const totalDurationMs = await this.getTotalDurationMs(resolvedVideoPaths);
+    const mergeArguments = ["-y"];
+    const filterParts: string[] = [];
+
+    for (const videoPath of resolvedVideoPaths) {
+      mergeArguments.push("-i", videoPath);
+    }
+
+    for (const [inputIndex] of resolvedVideoPaths.entries()) {
+      const videoLabels = outputs.map((_, outputIndex) => `[sourceVideo${inputIndex}_${outputIndex}]`).join("");
+      filterParts.push(`[${inputIndex}:v]split=${outputs.length}${videoLabels}`);
+    }
+
+    const audioConcatInputs = resolvedVideoPaths.map((_, inputIndex) => `[${inputIndex}:a]asetpts=PTS-STARTPTS[audio${inputIndex}]`).join(";");
+    const audioInputs = resolvedVideoPaths.map((_, inputIndex) => `[audio${inputIndex}]`).join("");
+    const outputAudioLabels = outputs.map((_, outputIndex) => `[outputAudio${outputIndex}]`).join("");
+    filterParts.push(`${audioConcatInputs};${audioInputs}concat=n=${videoPaths.length}:v=0:a=1[mergedAudio]`);
+    filterParts.push(`[mergedAudio]asplit=${outputs.length}${outputAudioLabels}`);
+
+    const currentVideos: string[] = [];
+    for (const [outputIndex, output] of outputs.entries()) {
+      const concatInputs: string[] = [];
+      for (const [inputIndex] of resolvedVideoPaths.entries()) {
+        filterParts.push(
+          `[sourceVideo${inputIndex}_${outputIndex}]scale=${output.options.width}:${output.options.height}:force_original_aspect_ratio=decrease,pad=${output.options.width}:${output.options.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS[video${inputIndex}_${outputIndex}]`,
+        );
+        concatInputs.push(`[video${inputIndex}_${outputIndex}]`);
+      }
+      filterParts.push(`${concatInputs.join("")}concat=n=${videoPaths.length}:v=1:a=0[mergedVideo${outputIndex}]`);
+      currentVideos.push(`mergedVideo${outputIndex}`);
+    }
+
+    let imageInputIndex = videoPaths.length;
+    for (const [imageIndex, image] of images.entries()) {
+      const endTime = image.startTime + image.duration;
+      const imageLabels = outputs.map((_, outputIndex) => `[imageSource${imageIndex}_${outputIndex}]`).join("");
+      mergeArguments.push("-loop", "1", "-framerate", "25", "-t", String(endTime), "-i", this.resolveUploadPath(image.imagePath));
+      filterParts.push(`[${imageInputIndex}:v]split=${outputs.length}${imageLabels}`);
+
+      for (const [outputIndex, output] of outputs.entries()) {
+        const outputLabel = `overlayVideo${outputIndex}_${imageIndex}`;
+        filterParts.push(
+          `[imageSource${imageIndex}_${outputIndex}]scale=${output.options.width}:${output.options.height},setsar=1[image${outputIndex}_${imageIndex}]`,
+          `[${currentVideos[outputIndex]}][image${outputIndex}_${imageIndex}]overlay=0:0:enable='between(t,${image.startTime},${endTime})':eof_action=pass:repeatlast=0[${outputLabel}]`,
+        );
+        currentVideos[outputIndex] = outputLabel;
+      }
+      imageInputIndex++;
+    }
+
+    mergeArguments.push("-progress", "pipe:1", "-nostats", "-filter_complex", filterParts.join(";"));
+    for (const [outputIndex, destination] of destinations.entries()) {
+      mergeArguments.push("-map", `[${currentVideos[outputIndex]}]`, "-map", `[outputAudio${outputIndex}]`, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", destination);
+    }
+    console.log(mergeArguments.join(" "));
+
+    const startTime = performance.now();
+    await this.runFfmpeg(mergeArguments, totalDurationMs, onProgress);
+    const runTimeMs = Math.round(performance.now() - startTime);
+
+    return {
+      outputs: destinations.map((destination) => ({ path: destination, runTimeMs })),
+      runTimeMs,
+    };
   }
 
   private async getTotalDurationMs(videoPaths: string[]): Promise<number> {
@@ -171,7 +270,10 @@ export class FfmpegService {
       throw new Error("width and height must be positive integers");
     }
 
-    for (const image of options.images || []) {
+  }
+
+  private validateImages(images: VideoImageOverlay[]): void {
+    for (const image of images) {
       if (!image.imagePath || image.startTime < 0 || image.duration <= 0) {
         throw new Error("Each image requires a path, a non-negative startTime, and a positive duration");
       }
