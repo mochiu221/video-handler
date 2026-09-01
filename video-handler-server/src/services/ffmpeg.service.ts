@@ -5,7 +5,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { MergeVideosOptions } from "../models/MergeVideosOptions";
 import { CONFIG } from "../config";
-import { MergeVideosResult } from "../models/request-response/MergeVideosResult";
 import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
 import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
 import { VideoImageOverlay } from "../models/VideoImageOverlay";
@@ -125,7 +124,7 @@ export class FfmpegService {
   ): Promise<MergeVideosBatchResult> {
     const openingDurationMs = await this.getTotalDurationMs(openingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath)));
     const mainDurationMs = await this.getTotalDurationMs([this.resolveUploadPath(mainVideoPath)]);
-    const endingDurationMs = await this.getTotalDurationMs(endingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath))) + 0.1; // Add a small buffer to ensure the ending video is fully processed
+    const endingDurationMs = await this.getTotalDurationMs(endingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath))) + 100; // Add a small buffer to ensure the ending video is fully processed
 
     const images = [
       ...this.fullSectionImages(openingImagePaths, 0, openingDurationMs),
@@ -236,21 +235,6 @@ export class FfmpegService {
         throw new Error("Each image requires a path, a non-negative startTime, and a positive duration");
       }
     }
-  }
-
-  private offsetImages(
-    images: VideoImageOverlay[],
-    offsetMs: number,
-    segmentDurationMs: number,
-    sectionName: string,
-  ): VideoImageOverlay[] {
-    this.validateImages(images);
-    return images.map((image) => {
-      if ((image.startTime + image.duration) * 1000 > segmentDurationMs) {
-        throw new Error(`${sectionName} image overlays must finish within the ${sectionName} video duration`);
-      }
-      return { ...image, startTime: image.startTime + offsetMs / 1000 };
-    });
   }
 
   private fullSectionImages(imagePaths: string[], offsetMs: number, durationMs: number): VideoImageOverlay[] {
