@@ -1,4 +1,36 @@
 services:
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: video-handler
+      RABBITMQ_DEFAULT_PASS: video-handler-dev
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - video-handler-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - video-handler-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   video-handler-client:
     build:
       context: ./video-handler-client
@@ -19,8 +51,15 @@ services:
     environment:
       PORT: "3000"
       UPLOAD_DIR: /app/uploads
+      RABBITMQ_URL: amqp://video-handler:video-handler-dev@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
     volumes:
       - video-handler-uploads:/app/uploads
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     mem_limit: 2g
     mem_reservation: 512m
     cpus: 4
@@ -35,3 +74,5 @@ services:
 
 volumes:
   video-handler-uploads:
+  video-handler-rabbitmq:
+  video-handler-redis:

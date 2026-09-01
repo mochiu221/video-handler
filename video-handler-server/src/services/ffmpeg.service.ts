@@ -107,7 +107,10 @@ export class FfmpegService {
     const runTimeMs = Math.round(performance.now() - startTime);
 
     return {
-      outputs: destinations.map((destination) => ({ path: destination, runTimeMs })),
+      outputs: destinations.map((destination) => ({
+        path: path.relative(this.uploadDirectory, destination).split(path.sep).join("/"),
+        runTimeMs,
+      })),
       runTimeMs,
     };
   }

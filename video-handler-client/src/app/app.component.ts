@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { RouterOutlet } from '@angular/router';
 
 type FileResource = { name: string; path: string; size: number; updatedAt: string; duration?: number };
+type MergeJob = { id: string; type: string; status: 'queued' | 'running' | 'completed' | 'failed'; progress: number; createdAt: string; updatedAt: string; elapsedMs?: number; runTimeMs?: number; error?: string; detail: unknown; outputs?: { path: string; runTimeMs: number }[] };
 type SectionImage = { imageFileName: string };
 type MainImage = { imageFileName: string; startTime: number; duration?: number };
 type OutputTarget = { suffix: string; width: number; height: number };
 type AssetSection = { videoFileName: string; images: SectionImage[] };
-type View = 'videos' | 'assets' | 'merge' | 'merged';
+type View = 'videos' | 'assets' | 'merge' | 'merged' | 'jobs';
 type MergeEditorMode = 'form' | 'json';
 type MergeCompositionRequest = {
   opening?: AssetSection;
@@ -31,6 +32,7 @@ export class AppComponent {
   videos: FileResource[] = [];
   assets: FileResource[] = [];
   mergedVideos: FileResource[] = [];
+  jobs: MergeJob[] = [];
   mainVideoFileName = '';
   opening: AssetSection = { videoFileName: '', images: [] };
   mainImages: MainImage[] = [];
@@ -43,17 +45,26 @@ export class AppComponent {
   error = '';
   uploading: 'video' | 'asset' | null = null;
   deletingPath: string | null = null;
+  private jobRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.refreshAll();
   }
 
   setView(view: View): void {
+    if (this.jobRefreshTimer) {
+      clearInterval(this.jobRefreshTimer);
+      this.jobRefreshTimer = null;
+    }
     this.activeView = view;
     this.error = '';
     if (view === 'videos') this.loadFiles('videos');
     if (view === 'assets') this.loadFiles('assets');
     if (view === 'merged') this.loadFiles('merged');
+    if (view === 'jobs') {
+      this.loadJobs();
+      this.jobRefreshTimer = setInterval(() => this.loadJobs(), 2000);
+    }
   }
 
   refreshAll(): void {
@@ -78,6 +89,13 @@ export class AppComponent {
         if (type === 'merged') this.mergedVideos = files;
       },
       error: () => this.error = `Could not load ${type}. Start the video-handler server and try again.`,
+    });
+  }
+
+  loadJobs(): void {
+    this.http.get<MergeJob[]>(`${this.apiUrl}/video/jobs`).subscribe({
+      next: (jobs) => this.jobs = jobs,
+      error: () => this.error = 'Could not load merge jobs.',
     });
   }
 
@@ -216,14 +234,17 @@ export class AppComponent {
 
   private handleMergeEvent(line: string): void {
     if (!line.trim()) return;
-    const event = JSON.parse(line) as { type: string; progress?: number; error?: string; runTimeMs?: number };
+    const event = JSON.parse(line) as { type: string; position?: number; progress?: number; error?: string; runTimeMs?: number };
     if (event.type === 'progress') {
       this.progress = event.progress ?? 0;
       this.mergeStatus = `Rendering ${this.progress}%`;
+	} else if (event.type === 'queued') {
+	  this.mergeStatus = `Queued (position ${event.position ?? 1})`;
     } else if (event.type === 'complete') {
       this.progress = 100;
       this.mergeStatus = `Complete in ${((event.runTimeMs || 0) / 1000).toFixed(1)} seconds`;
       this.loadFiles('merged');
+      this.loadJobs();
     } else if (event.type === 'error') {
       this.error = event.error || 'Merge failed.';
     }
@@ -265,5 +286,19 @@ export class AppComponent {
 
   formatUpdatedAt(updatedAt: string): string {
     return new Date(updatedAt).toLocaleString();
+  }
+
+  formatDuration(milliseconds: number | undefined): string {
+    if (milliseconds === undefined) return '-';
+    const totalSeconds = Math.round(milliseconds / 1000);
+    return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+  }
+
+  outputUrl(outputPath: string): string {
+    return `${this.apiUrl}/uploads/file/${outputPath}`;
+  }
+
+  formatJobDetail(detail: unknown): string {
+    return JSON.stringify(detail, null, 2);
   }
 }

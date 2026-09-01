@@ -6,9 +6,37 @@ import { MergeVideosRequest } from "../models/request-response/MergeVideosReques
 import { MergeVideoCompositionRequest } from "../models/request-response/MergeVideoCompositionRequest";
 import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
 import { VideoImageOverlay } from "../models/VideoImageOverlay";
+import MergeQueue from "../services/merge-queue.service";
+import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
 
 const router = Router();
 const ffmpegService = new FfmpegService();
+type MergeJob =
+	| { type: "raw"; videoPaths: string[]; outputs: MergeVideoOutput[]; images: VideoImageOverlay[] }
+	| { type: "composition"; openingVideoPaths: string[]; openingImagePaths: string[]; mainVideoPath: string; mainImages: MainImage[]; endingVideoPaths: string[]; endingImagePaths: string[]; outputs: MergeVideoOutput[] };
+const mergeQueue = new MergeQueue<MergeJob, MergeVideosBatchResult>(async (job, onProgress) => {
+	if (job.type === "raw") {
+		return ffmpegService.mergeVideosToOutputs(job.videoPaths, job.outputs, job.images, onProgress);
+	}
+	return ffmpegService.mergeVideoComposition(
+		job.openingVideoPaths,
+		job.openingImagePaths,
+		job.mainVideoPath,
+		job.mainImages,
+		job.endingVideoPaths,
+		job.endingImagePaths,
+		job.outputs,
+		onProgress,
+	);
+});
+
+router.get("/jobs", async (_request, response) => {
+	try {
+		response.json(await mergeQueue.listJobs());
+	} catch {
+		response.status(503).json({ error: "Job store is unavailable" });
+	}
+});
 
 router.post("/merge", async (request, response) => {
 	const { videoPaths, images, outputs } = request.body as MergeVideosRequest;
@@ -39,7 +67,12 @@ router.post("/merge", async (request, response) => {
 		const onProgress = streamProgress
 			? (progress: number) => response.write(`${JSON.stringify({ type: "progress", progress })}\n`)
 			: undefined;
-		const mergedVideos = await ffmpegService.mergeVideosToOutputs(videoPaths, requestedOutputs, requestedImages, onProgress);
+		const mergedVideos = await mergeQueue.enqueue(
+			{ type: "raw", videoPaths, outputs: requestedOutputs, images: requestedImages },
+			{ videoPaths, images, outputs },
+			onProgress,
+			streamProgress ? (position) => response.write(`${JSON.stringify({ type: "queued", position })}\n`) : undefined,
+		);
 
 		if (streamProgress) {
 			response.end(`${JSON.stringify({ type: "complete", ...mergedVideos })}\n`);
@@ -102,15 +135,20 @@ router.post("/merge-composition", async (request, response) => {
 			response.write(`${JSON.stringify({ type: "started", progress: 0 })}\n`);
 		}
 
-		const result = await ffmpegService.mergeVideoComposition(
-			openingSection.videoPaths,
-			openingSection.images,
-			mainSection.videoPath,
-			mainSection.images,
-			endingSection.videoPaths,
-			endingSection.images,
-			requestedOutputs,
+		const result = await mergeQueue.enqueue(
+			{
+				type: "composition",
+				openingVideoPaths: openingSection.videoPaths,
+				openingImagePaths: openingSection.images,
+				mainVideoPath: mainSection.videoPath,
+				mainImages: mainSection.images,
+				endingVideoPaths: endingSection.videoPaths,
+				endingImagePaths: endingSection.images,
+				outputs: requestedOutputs,
+			},
+			{ opening, main, ending, outputs },
 			streamProgress ? (progress) => response.write(`${JSON.stringify({ type: "progress", progress })}\n`) : undefined,
+			streamProgress ? (position) => response.write(`${JSON.stringify({ type: "queued", position })}\n`) : undefined,
 		);
 
 		if (streamProgress) {
