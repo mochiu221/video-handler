@@ -6,4 +6,5 @@ interface UploadConfig {
     assetsFolder: string;
     uploadVideosFolder: string;
     mergedVideosFolder: string;
+    snapshotsFolder: string;
 }

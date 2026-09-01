@@ -4,6 +4,7 @@ export const CONFIG: Config = {
     upload: {
         assetsFolder: "assets",
         uploadVideosFolder: "videos",
-        mergedVideosFolder: "merged"
+        mergedVideosFolder: "merged",
+        snapshotsFolder: "snapshots"
     }
 }

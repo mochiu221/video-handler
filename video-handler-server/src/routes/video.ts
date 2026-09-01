@@ -12,6 +12,7 @@ import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBa
 
 const router = Router();
 const ffmpegService = new FfmpegService();
+const videoExtensions = new Set([".avi", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm"]);
 type MergeJob =
 	| { type: "raw"; videoPaths: string[]; outputs: MergeVideoOutput[]; images: VideoImageOverlay[] }
 	| { type: "composition"; openingVideoPaths: string[]; openingImagePaths: string[]; mainVideoPath: string; mainImages: MainImage[]; endingVideoPaths: string[]; endingImagePaths: string[]; outputs: MergeVideoOutput[] };
@@ -49,6 +50,22 @@ router.delete("/jobs/:id", async (request, response) => {
 		response.status(204).end();
 	} catch {
 		response.status(503).json({ error: "Job store is unavailable" });
+	}
+});
+
+router.post("/thumbnail/:fileName", async (request, response) => {
+	const { fileName } = request.params;
+	if (!fileName || path.basename(fileName) !== fileName || !videoExtensions.has(path.extname(fileName).toLowerCase())) {
+		response.status(400).json({ error: "fileName must be a video file name" });
+		return;
+	}
+
+	try {
+		const thumbnailPath = await ffmpegService.createThumbnail(path.posix.join(CONFIG.upload.mergedVideosFolder, fileName));
+		response.status(201).json({ thumbnailPath });
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		response.status(code === "ENOENT" ? 404 : 500).json({ error: code === "ENOENT" ? "Video not found" : "Unable to create thumbnail" });
 	}
 });
 

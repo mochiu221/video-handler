@@ -157,6 +157,20 @@ export class FfmpegService {
     );
   }
 
+  async createThumbnail(videoObjectPath: string): Promise<string> {
+    const temporaryDirectory = await mkdtemp(path.join(process.env.TMPDIR || "/tmp", "video-handler-"));
+    try {
+      const localVideoPath = await this.storage.downloadToFile(videoObjectPath, temporaryDirectory);
+      const thumbnailPath = path.posix.join(CONFIG.upload.snapshotsFolder, `${path.posix.parse(videoObjectPath).name}.png`);
+      const localThumbnailPath = path.join(temporaryDirectory, "thumbnail.png");
+      await this.captureFrame(localVideoPath, localThumbnailPath);
+      await this.storage.uploadFile(thumbnailPath, localThumbnailPath, "image/png");
+      return thumbnailPath;
+    } finally {
+      await this.storage.cleanup(temporaryDirectory);
+    }
+  }
+
   private async getTotalDurationMs(videoPaths: string[]): Promise<number> {
     if (videoPaths.length === 0) {
       return 0;
@@ -186,6 +200,12 @@ export class FfmpegService {
     } finally {
       await this.storage.cleanup(temporaryDirectory);
     }
+  }
+
+  private async captureFrame(videoPath: string, imagePath: string): Promise<void> {
+    await execFileAsync(this.ffmpegPath, [
+      "-y", "-ss", "0", "-i", videoPath, "-frames:v", "1", "-q:v", "2", imagePath,
+    ]);
   }
 
   private runFfmpeg(
