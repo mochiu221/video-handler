@@ -1,49 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
 import { promisify } from "node:util";
 import { CONFIG } from "../config";
+import FileStorageService from "../services/file-storage.service";
 
 const router = Router();
 const execFileAsync = promisify(execFile);
-const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
-const videosDirectory = path.join(uploadDirectory, CONFIG.upload.uploadVideosFolder);
-const assetsDirectory = path.join(uploadDirectory, CONFIG.upload.assetsFolder);
-const mergedVideosDirectory = path.join(uploadDirectory, CONFIG.upload.mergedVideosFolder);
-
-mkdirSync(videosDirectory, { recursive: true });
-mkdirSync(assetsDirectory, { recursive: true });
-mkdirSync(mergedVideosDirectory, { recursive: true });
-
-function createUpload(destination: string, preserveOriginalName = false) {
-  return multer({
-	storage: multer.diskStorage({
-		destination,
-		filename: (_request, file, callback) => {
-			callback(null, preserveOriginalName
-				? path.basename(file.originalname)
-				: `${randomUUID()}${path.extname(file.originalname)}`);
-		},
-	}),
-  });
-}
-
-const videoUpload = createUpload(videosDirectory);
-const assetUpload = createUpload(assetsDirectory, true);
-
-const directories = {
-	videos: videosDirectory,
-	assets: assetsDirectory,
-	merged: mergedVideosDirectory,
+const storage = new FileStorageService();
+const temporaryUploadDirectory = path.join(os.tmpdir(), "video-handler-uploads");
+mkdirSync(temporaryUploadDirectory, { recursive: true });
+const uploadStorage = multer.diskStorage({
+	destination: temporaryUploadDirectory,
+	filename: (_request, file, callback) => callback(null, `${randomUUID()}${path.extname(file.originalname)}`),
+});
+const videoUpload = multer({ storage: uploadStorage });
+const assetUpload = multer({ storage: uploadStorage });
+const prefixes = {
+	videos: CONFIG.upload.uploadVideosFolder,
+	assets: CONFIG.upload.assetsFolder,
+	merged: CONFIG.upload.mergedVideosFolder,
 };
 const videoExtensions = new Set([".avi", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm"]);
 
-async function getVideoDuration(filePath: string): Promise<number | undefined> {
+async function getVideoDuration(objectPath: string): Promise<number | undefined> {
+	const temporaryDirectory = await mkdtemp(path.join(process.env.TMPDIR || "/tmp", "video-handler-"));
 	try {
+		const filePath = await storage.downloadToFile(objectPath, temporaryDirectory);
 		const { stdout } = await execFileAsync(process.env.FFPROBE_PATH || "ffprobe", [
 			"-v",
 			"error",
@@ -58,45 +46,40 @@ async function getVideoDuration(filePath: string): Promise<number | undefined> {
 		return Number.isFinite(duration) ? Number(duration.toFixed(3)) : undefined;
 	} catch {
 		return undefined;
+	} finally {
+		await storage.cleanup(temporaryDirectory);
 	}
 }
 
 router.get("/list-files/:type", async (request, response) => {
-	const directory = directories[request.params.type as keyof typeof directories];
+	const prefix = prefixes[request.params.type as keyof typeof prefixes];
 
-	if (!directory) {
+	if (!prefix) {
 		response.status(400).json({ error: "type must be videos, assets, or merged" });
 		return;
 	}
 
-	const entries = await readdir(directory, { withFileTypes: true });
-	const files = await Promise.all(entries
-		.filter((entry) => entry.isFile())
-		.map(async (entry) => {
-			const filePath = path.join(directory, entry.name);
-			const stats = await stat(filePath);
+	const entries = await storage.list(prefix);
+	const files = await Promise.all(entries.map(async (entry) => {
 			const duration = videoExtensions.has(path.extname(entry.name).toLowerCase())
-				? await getVideoDuration(filePath)
+				? await getVideoDuration(entry.path)
 				: undefined;
 
 			return {
-				name: entry.name,
-				path: path.relative(uploadDirectory, filePath),
-				size: stats.size,
-				updatedAt: stats.mtime.toISOString(),
+				...entry,
 				...(duration !== undefined ? { duration } : {}),
 			};
-		}));
+	}));
 
 	files.sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
 	response.json(files);
 });
 
 router.delete("/file/:type/:fileName", async (request, response) => {
-	const directory = directories[request.params.type as keyof typeof directories];
+	const prefix = prefixes[request.params.type as keyof typeof prefixes];
 	const { fileName } = request.params;
 
-	if (!directory) {
+	if (!prefix) {
 		response.status(400).json({ error: "type must be videos, assets, or merged" });
 		return;
 	}
@@ -106,7 +89,7 @@ router.delete("/file/:type/:fileName", async (request, response) => {
 	}
 
 	try {
-		await rm(path.join(directory, fileName));
+		await storage.remove(path.posix.join(prefix, fileName));
 		response.status(204).end();
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
@@ -114,22 +97,34 @@ router.delete("/file/:type/:fileName", async (request, response) => {
 	}
 });
 
-router.post("/upload-video", videoUpload.single("file"), (request, response) => {
+router.post("/upload-video", videoUpload.single("file"), async (request, response) => {
 	if (!request.file) {
 		response.status(400).json({ error: "A video file is required in the 'file' field" });
 		return;
 	}
 
-	response.status(201).json(request.file);
+	const fileName = `${randomUUID()}${path.extname(request.file.originalname)}`;
+	try {
+		await storage.uploadFile(path.posix.join(CONFIG.upload.uploadVideosFolder, fileName), request.file.path, request.file.mimetype);
+		response.status(201).json({ ...request.file, filename: fileName });
+	} finally {
+		await rm(request.file.path, { force: true });
+	}
 });
 
-router.post("/upload-asset", assetUpload.single("file"), (request, response) => {
+router.post("/upload-asset", assetUpload.single("file"), async (request, response) => {
 	if (!request.file) {
 		response.status(400).json({ error: "An asset file is required in the 'file' field" });
 		return;
 	}
 
-	response.status(201).json(request.file);
+	const fileName = path.basename(request.file.originalname);
+	try {
+		await storage.uploadFile(path.posix.join(CONFIG.upload.assetsFolder, fileName), request.file.path, request.file.mimetype);
+		response.status(201).json({ ...request.file, filename: fileName });
+	} finally {
+		await rm(request.file.path, { force: true });
+	}
 });
 
 export default router;

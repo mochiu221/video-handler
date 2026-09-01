@@ -25,13 +25,36 @@
 				<small>{{ uploading ? 'Uploading...' : 'Files are saved to your media library' }}</small>
 			</label>
 			<div class="media-list">
-				@for (file of (activeView === 'videos' ? videos : assets); track file.path) {
-					<article class="media-row">
-						<div class="file-badge">{{ activeView === 'videos' || isVideoAsset(file) ? 'VID' : 'IMG' }}</div>
-						<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
-						<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile(activeView === 'videos' ? 'videos' : 'assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
-					</article>
-				} @empty { <div class="empty-state">No files yet.</div> }
+				@if (activeView === 'assets') {
+					<section class="asset-group">
+						<div class="asset-group-heading"><h2>Video assets</h2><span>{{ videoAssets.length }}</span></div>
+						@for (file of videoAssets; track file.path) {
+							<article class="media-row">
+								<div class="file-badge">VID</div>
+								<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
+								<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
+							</article>
+						} @empty { <div class="empty-state">No video assets yet.</div> }
+					</section>
+					<section class="asset-group">
+						<div class="asset-group-heading"><h2>Image assets</h2><span>{{ imageAssets.length }}</span></div>
+						@for (file of imageAssets; track file.path) {
+							<article class="media-row">
+								<div class="file-badge">IMG</div>
+								<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }}</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
+								<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
+							</article>
+						} @empty { <div class="empty-state">No image assets yet.</div> }
+					</section>
+				} @else {
+					@for (file of videos; track file.path) {
+						<article class="media-row">
+							<div class="file-badge">VID</div>
+							<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
+							<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('videos', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
+						</article>
+					} @empty { <div class="empty-state">No files yet.</div> }
+				}
 			</div>
 		</section>
 	}
@@ -72,6 +95,6 @@
 
 	@if (activeView === 'jobs') {
 		<section class="page-heading"><p class="eyebrow">Operations</p><h1>Merge jobs</h1><p>Track queued and completed video merge requests.</p></section>
-		<section class="job-list">@for (job of jobs; track job.id) { <article class="job-row"><div class="job-heading"><strong>{{ job.type }}</strong><span>{{ job.status }}</span></div><div class="job-progress"><span [style.width.%]="job.progress"></span></div><div class="job-details"><span>{{ job.progress }}%</span><span>Elapsed {{ formatDuration(job.elapsedMs) }}</span><span>Total {{ formatDuration(job.runTimeMs) }}</span></div>@if (job.outputs?.length) { <div class="job-outputs"><strong>Outputs</strong>@for (output of job.outputs; track output.path) { <a [href]="outputUrl(output.path)" download>{{ output.path.split('/').pop() }}</a> }</div> }<details class="job-detail"><summary>Request details</summary><pre>{{ formatJobDetail(job.detail) }}</pre></details>@if (job.error) { <p class="job-error">{{ job.error }}</p> }<small>{{ job.id }}</small></article> } @empty { <div class="empty-state">No merge jobs yet.</div> }</section>
+		<section class="job-list">@for (job of jobs; track job.id) { <article class="job-row"><div class="job-heading"><strong>{{ job.type }}</strong><span>{{ job.status }}</span></div><div class="job-progress"><span [style.width.%]="job.progress"></span></div><div class="job-details"><span>{{ job.progress }}%</span><span>Elapsed {{ formatDuration(job.elapsedMs) }}</span><span>Total {{ formatDuration(job.runTimeMs) }}</span>@if (job.status !== 'queued' && job.status !== 'running') { <button class="delete-button" [disabled]="deletingJobId === job.id" (click)="deleteJob(job)">{{ deletingJobId === job.id ? 'Deleting...' : 'Delete' }}</button> }</div>@if (job.outputs?.length) { <div class="job-outputs"><strong>Outputs</strong>@for (output of job.outputs; track output.path) { <a [href]="outputUrl(output.path)" download>{{ output.path.split('/').pop() }}</a> }</div> }<details class="job-detail"><summary>Request details</summary><pre>{{ formatJobDetail(job.detail) }}</pre></details>@if (job.error) { <p class="job-error">{{ job.error }}</p> }<small>Created {{ formatUpdatedAt(job.createdAt) }}</small></article> } @empty { <div class="empty-state">No merge jobs yet.</div> }</section>
 	}
 </main>

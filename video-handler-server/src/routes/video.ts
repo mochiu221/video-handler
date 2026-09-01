@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import path from "node:path";
 import { CONFIG } from "../config";
@@ -33,6 +34,19 @@ const mergeQueue = new MergeQueue<MergeJob, MergeVideosBatchResult>(async (job, 
 router.get("/jobs", async (_request, response) => {
 	try {
 		response.json(await mergeQueue.listJobs());
+	} catch {
+		response.status(503).json({ error: "Job store is unavailable" });
+	}
+});
+
+router.delete("/jobs/:id", async (request, response) => {
+	try {
+		const deleted = await mergeQueue.deleteJob(request.params.id);
+		if (!deleted) {
+			response.status(404).json({ error: "Job not found" });
+			return;
+		}
+		response.status(204).end();
 	} catch {
 		response.status(503).json({ error: "Job store is unavailable" });
 	}
@@ -120,7 +134,7 @@ router.post("/merge-composition", async (request, response) => {
 	const openingSection = parseAssetSection(opening);
 	const mainSection = parseMainSection(main);
 	const endingSection = parseAssetSection(ending);
-	const requestedOutputs = parseCompositionOutputs(outputs, mainSection?.videoFileName);
+	const requestedOutputs = parseCompositionOutputs(outputs);
 	const streamProgress = request.query.progress === "true";
 
 	if (!openingSection || !mainSection || !endingSection || !requestedOutputs) {
@@ -191,9 +205,9 @@ function parseMainSection(section: unknown): MainSection | undefined {
 	return { videoFileName, videoPath, images: parsedImages };
 }
 
-function parseCompositionOutputs(outputs: unknown, mainVideoFileName: string | undefined): MergeVideoOutput[] | undefined {
-	if (!Array.isArray(outputs) || outputs.length === 0 || !mainVideoFileName) return undefined;
-	const baseName = path.parse(mainVideoFileName).name;
+function parseCompositionOutputs(outputs: unknown): MergeVideoOutput[] | undefined {
+	if (!Array.isArray(outputs) || outputs.length === 0) return undefined;
+	const baseName = randomUUID();
 	const parsedOutputs = outputs.map((output) => {
 		if (typeof output !== "object" || output === null || Array.isArray(output)) return undefined;
 		const { suffix, options } = output as { suffix?: unknown; options?: unknown };

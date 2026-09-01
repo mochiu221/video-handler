@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { MergeVideosOptions } from "../models/MergeVideosOptions";
@@ -8,6 +8,7 @@ import { CONFIG } from "../config";
 import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
 import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
 import { VideoImageOverlay } from "../models/VideoImageOverlay";
+import FileStorageService from "./file-storage.service";
 
 type CompositionMainImage = { imagePath: string; startTime: number; duration?: number };
 
@@ -15,13 +16,36 @@ const execFileAsync = promisify(execFile);
 
 export class FfmpegService {
   private readonly ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
-  private readonly uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
-  private readonly mergedOutputDirectory = path.join(this.uploadDirectory, CONFIG.upload.mergedVideosFolder);
+  private readonly storage = new FileStorageService();
 
   async mergeVideosToOutputs(
     videoPaths: string[],
     outputs: MergeVideoOutput[],
     images: VideoImageOverlay[],
+    onProgress?: (progress: number) => void,
+  ): Promise<MergeVideosBatchResult> {
+    const temporaryDirectory = await mkdtemp(path.join(process.env.TMPDIR || "/tmp", "video-handler-"));
+    try {
+      const localVideoPaths = await Promise.all(videoPaths.map((videoPath) => this.storage.downloadToFile(videoPath, temporaryDirectory)));
+      const localImages = await Promise.all(images.map(async (image) => ({
+        ...image,
+        imagePath: await this.storage.downloadToFile(image.imagePath, temporaryDirectory),
+      })));
+      const normalizedOutputs = outputs.map((output) => ({
+        ...output,
+        outputPath: output.outputPath || path.posix.join(CONFIG.upload.mergedVideosFolder, `${randomUUID()}.mp4`),
+      }));
+      return await this.mergeVideosToOutputsLocal(localVideoPaths, normalizedOutputs, localImages, temporaryDirectory, onProgress);
+    } finally {
+      await this.storage.cleanup(temporaryDirectory);
+    }
+  }
+
+  private async mergeVideosToOutputsLocal(
+    videoPaths: string[],
+    outputs: MergeVideoOutput[],
+    images: VideoImageOverlay[],
+    temporaryDirectory: string,
     onProgress?: (progress: number) => void,
   ): Promise<MergeVideosBatchResult> {
     if (videoPaths.length === 0) {
@@ -36,31 +60,26 @@ export class FfmpegService {
     }
     this.validateImages(images);
 
-    await mkdir(this.mergedOutputDirectory, { recursive: true });
-    const destinations = outputs.map((output) => output.outputPath
-      ? this.resolveUploadPath(output.outputPath)
-      : path.join(this.mergedOutputDirectory, `${randomUUID()}.mp4`));
+    const outputPaths = outputs.map((output) => output.outputPath as string);
+    const destinations = outputPaths.map((_outputPath, outputIndex) => path.join(temporaryDirectory, `output-${outputIndex}.mp4`));
     if (new Set(destinations).size !== destinations.length) {
       throw new Error("Each output must have a unique outputPath");
     }
-    await Promise.all(destinations.map((destination) => mkdir(path.dirname(destination), { recursive: true })));
-
-    const resolvedVideoPaths = videoPaths.map((videoPath) => this.resolveUploadPath(videoPath));
-    const totalDurationMs = await this.getTotalDurationMs(resolvedVideoPaths);
+    const totalDurationMs = await this.getTotalDurationMs(videoPaths);
     const mergeArguments = ["-y"];
     const filterParts: string[] = [];
 
-    for (const videoPath of resolvedVideoPaths) {
+    for (const videoPath of videoPaths) {
       mergeArguments.push("-i", videoPath);
     }
 
-    for (const [inputIndex] of resolvedVideoPaths.entries()) {
+    for (const [inputIndex] of videoPaths.entries()) {
       const videoLabels = outputs.map((_, outputIndex) => `[sourceVideo${inputIndex}_${outputIndex}]`).join("");
       filterParts.push(`[${inputIndex}:v]split=${outputs.length}${videoLabels}`);
     }
 
-    const audioConcatInputs = resolvedVideoPaths.map((_, inputIndex) => `[${inputIndex}:a]asetpts=PTS-STARTPTS[audio${inputIndex}]`).join(";");
-    const audioInputs = resolvedVideoPaths.map((_, inputIndex) => `[audio${inputIndex}]`).join("");
+    const audioConcatInputs = videoPaths.map((_, inputIndex) => `[${inputIndex}:a]asetpts=PTS-STARTPTS[audio${inputIndex}]`).join(";");
+    const audioInputs = videoPaths.map((_, inputIndex) => `[audio${inputIndex}]`).join("");
     const outputAudioLabels = outputs.map((_, outputIndex) => `[outputAudio${outputIndex}]`).join("");
     filterParts.push(`${audioConcatInputs};${audioInputs}concat=n=${videoPaths.length}:v=0:a=1[mergedAudio]`);
     filterParts.push(`[mergedAudio]asplit=${outputs.length}${outputAudioLabels}`);
@@ -68,7 +87,7 @@ export class FfmpegService {
     const currentVideos: string[] = [];
     for (const [outputIndex, output] of outputs.entries()) {
       const concatInputs: string[] = [];
-      for (const [inputIndex] of resolvedVideoPaths.entries()) {
+      for (const [inputIndex] of videoPaths.entries()) {
         filterParts.push(
           `[sourceVideo${inputIndex}_${outputIndex}]scale=${output.options.width}:${output.options.height}:force_original_aspect_ratio=decrease,pad=${output.options.width}:${output.options.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,setpts=PTS-STARTPTS[video${inputIndex}_${outputIndex}]`,
         );
@@ -82,7 +101,7 @@ export class FfmpegService {
     for (const [imageIndex, image] of images.entries()) {
       const endTime = image.startTime + image.duration;
       const imageLabels = outputs.map((_, outputIndex) => `[imageSource${imageIndex}_${outputIndex}]`).join("");
-      mergeArguments.push("-loop", "1", "-framerate", "25", "-t", String(endTime), "-i", this.resolveUploadPath(image.imagePath));
+      mergeArguments.push("-loop", "1", "-framerate", "25", "-t", String(endTime), "-i", image.imagePath);
       filterParts.push(`[${imageInputIndex}:v]split=${outputs.length}${imageLabels}`);
 
       for (const [outputIndex, output] of outputs.entries()) {
@@ -106,13 +125,8 @@ export class FfmpegService {
     await this.runFfmpeg(mergeArguments, totalDurationMs, onProgress);
     const runTimeMs = Math.round(performance.now() - startTime);
 
-    return {
-      outputs: destinations.map((destination) => ({
-        path: path.relative(this.uploadDirectory, destination).split(path.sep).join("/"),
-        runTimeMs,
-      })),
-      runTimeMs,
-    };
+    await Promise.all(destinations.map((destination, outputIndex) => this.storage.uploadFile(outputPaths[outputIndex], destination)));
+    return { outputs: outputPaths.map((outputPath) => ({ path: outputPath, runTimeMs })), runTimeMs };
   }
 
   async mergeVideoComposition(
@@ -125,9 +139,9 @@ export class FfmpegService {
     outputs: MergeVideoOutput[],
     onProgress?: (progress: number) => void,
   ): Promise<MergeVideosBatchResult> {
-    const openingDurationMs = await this.getTotalDurationMs(openingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath)));
-    const mainDurationMs = await this.getTotalDurationMs([this.resolveUploadPath(mainVideoPath)]);
-    const endingDurationMs = await this.getTotalDurationMs(endingVideoPaths.map((videoPath) => this.resolveUploadPath(videoPath))) + 100; // Add a small buffer to ensure the ending video is fully processed
+    const openingDurationMs = await this.getObjectDurationMs(openingVideoPaths);
+    const mainDurationMs = await this.getObjectDurationMs([mainVideoPath]);
+    const endingDurationMs = await this.getObjectDurationMs(endingVideoPaths) + 100;
 
     const images = [
       ...this.fullSectionImages(openingImagePaths, 0, openingDurationMs),
@@ -162,6 +176,16 @@ export class FfmpegService {
     }));
 
     return durations.reduce((total, duration) => total + duration, 0);
+  }
+
+  private async getObjectDurationMs(objectPaths: string[]): Promise<number> {
+    const temporaryDirectory = await mkdtemp(path.join(process.env.TMPDIR || "/tmp", "video-handler-"));
+    try {
+      const localPaths = await Promise.all(objectPaths.map((objectPath) => this.storage.downloadToFile(objectPath, temporaryDirectory)));
+      return await this.getTotalDurationMs(localPaths);
+    } finally {
+      await this.storage.cleanup(temporaryDirectory);
+    }
   }
 
   private runFfmpeg(
@@ -208,19 +232,6 @@ export class FfmpegService {
         reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
       });
     });
-  }
-
-  private resolveUploadPath(filePath: string): string {
-    const resolvedPath = path.isAbsolute(filePath)
-      ? path.resolve(filePath)
-      : path.resolve(this.uploadDirectory, filePath);
-    const relativePath = path.relative(this.uploadDirectory, resolvedPath);
-
-    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-      throw new Error("Relative paths must be inside the upload directory");
-    }
-
-    return resolvedPath;
   }
 
   private validateOptions(options: MergeVideosOptions): void {

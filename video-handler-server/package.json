@@ -15,7 +15,8 @@
     "amqplib": "^2.0.1",
     "express": "^5.1.0",
     "multer": "^2.0.2",
-    "redis": "^6.2.1"
+    "redis": "^6.2.1",
+    "minio": "^8.0.7"
   },
   "devDependencies": {
     "@types/amqplib": "^0.10.8",

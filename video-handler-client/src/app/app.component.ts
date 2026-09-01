@@ -45,6 +45,7 @@ export class AppComponent {
   error = '';
   uploading: 'video' | 'asset' | null = null;
   deletingPath: string | null = null;
+  deletingJobId: string | null = null;
   private jobRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
@@ -96,6 +97,23 @@ export class AppComponent {
     this.http.get<MergeJob[]>(`${this.apiUrl}/video/jobs`).subscribe({
       next: (jobs) => this.jobs = jobs,
       error: () => this.error = 'Could not load merge jobs.',
+    });
+  }
+
+  deleteJob(job: MergeJob): void {
+    if (this.deletingJobId || !confirm(`Delete job ${job.id}?`)) return;
+
+    this.deletingJobId = job.id;
+    this.error = '';
+    this.http.delete(`${this.apiUrl}/video/jobs/${encodeURIComponent(job.id)}`).subscribe({
+      next: () => {
+        this.jobs = this.jobs.filter((currentJob) => currentJob.id !== job.id);
+        this.deletingJobId = null;
+      },
+      error: () => {
+        this.error = `Could not delete job ${job.id}.`;
+        this.deletingJobId = null;
+      },
     });
   }
 

@@ -2,14 +2,24 @@ import express from "express";
 import path from "node:path";
 import uploadsRouter from "./routes/uploads";
 import videoRouter from "./routes/video";
+import FileStorageService from "./services/file-storage.service";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-const uploadDirectory = path.resolve(process.env.UPLOAD_DIR || "uploads");
+const storage = new FileStorageService();
 
 app.use(express.json());
 
-app.use("/api/uploads/file", express.static(uploadDirectory));
+app.get(/^\/api\/uploads\/file\/(.+)$/, async (request, response) => {
+  try {
+    const objectPath = decodeURIComponent(request.params[0]);
+    const stream = await storage.getObject(objectPath);
+    response.type(path.extname(objectPath));
+    stream.pipe(response);
+  } catch {
+    response.status(404).json({ error: "File not found" });
+  }
+});
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/video", videoRouter);
 

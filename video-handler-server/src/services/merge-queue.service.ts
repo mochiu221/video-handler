@@ -54,6 +54,13 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
     return records.filter((record): record is string => record !== null).map((record) => JSON.parse(record));
   }
 
+  async deleteJob(id: string): Promise<boolean> {
+    await this.ready;
+    const deleted = await this.redis.del(`merge:job:${id}`);
+    await this.redis.zRem("merge:jobs", id);
+    return deleted > 0;
+  }
+
   private async startConsumer(): Promise<void> {
     const connection = await this.connectRabbitMq();
     const channel = await connection.createChannel();

@@ -31,6 +31,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: video-handler
+      MINIO_ROOT_PASSWORD: video-handler-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - video-handler-minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   video-handler-client:
     build:
       context: ./video-handler-client
@@ -53,12 +71,18 @@ services:
       UPLOAD_DIR: /app/uploads
       RABBITMQ_URL: amqp://video-handler:video-handler-dev@rabbitmq:5672
       REDIS_URL: redis://redis:6379
+      MINIO_URL: http://minio:9000
+      MINIO_BUCKET: video-handler
+      MINIO_ACCESS_KEY: video-handler
+      MINIO_SECRET_KEY: video-handler-dev
     volumes:
       - video-handler-uploads:/app/uploads
     depends_on:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     mem_limit: 2g
     mem_reservation: 512m
@@ -76,3 +100,4 @@ volumes:
   video-handler-uploads:
   video-handler-rabbitmq:
   video-handler-redis:
+  video-handler-minio:
