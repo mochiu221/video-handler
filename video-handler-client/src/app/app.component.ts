@@ -175,7 +175,7 @@ export class AppComponent {
   }
 
   isVideoAsset(file: FileResource): boolean {
-    return file.duration !== undefined;
+    return /\.(avi|mkv|mov|mp4|mpeg|mpg|webm)$/i.test(file.name);
   }
 
   addOverlay(section: 'opening' | 'main' | 'ending'): void {

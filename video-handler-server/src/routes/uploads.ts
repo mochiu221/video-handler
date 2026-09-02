@@ -61,9 +61,10 @@ router.get("/list-files/:type", async (request, response) => {
 
 	const entries = await storage.list(prefix);
 	const files = await Promise.all(entries.map(async (entry) => {
-			const duration = videoExtensions.has(path.extname(entry.name).toLowerCase())
-				? await getVideoDuration(entry.path)
-				: undefined;
+			// const duration = videoExtensions.has(path.extname(entry.name).toLowerCase())
+			// 	? await getVideoDuration(entry.path)
+			// 	: undefined;
+			const duration = undefined;
 
 			return {
 				...entry,

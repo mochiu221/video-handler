@@ -30,7 +30,7 @@
 						<div class="asset-group-heading"><h2>Video assets</h2><span>{{ videoAssets.length }}</span></div>
 						@for (file of videoAssets; track file.path) {
 							<article class="media-row">
-								<div class="file-badge">VID</div>
+								<video class="media-preview" muted preload="metadata" [src]="fileUrl(file)"></video>
 								<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
 								<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
 							</article>
@@ -40,7 +40,7 @@
 						<div class="asset-group-heading"><h2>Image assets</h2><span>{{ imageAssets.length }}</span></div>
 						@for (file of imageAssets; track file.path) {
 							<article class="media-row">
-								<div class="file-badge">IMG</div>
+								<img class="media-preview" [src]="fileUrl(file)" [alt]="file.name" />
 								<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }}</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
 								<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('assets', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
 							</article>
@@ -49,7 +49,7 @@
 				} @else {
 					@for (file of videos; track file.path) {
 						<article class="media-row">
-							<div class="file-badge">VID</div>
+							<video class="media-preview" muted preload="metadata" [src]="fileUrl(file)"></video>
 							<div class="file-details"><strong>{{ file.name }}</strong><span>{{ formatSize(file.size) }} @if (file.duration !== undefined) { <b>{{ file.duration }}s</b> }</span><span>Uploaded {{ formatUpdatedAt(file.updatedAt) }}</span></div>
 							<button class="delete-button" [disabled]="deletingPath === file.path" (click)="deleteFile('videos', file)">{{ deletingPath === file.path ? 'Deleting...' : 'Delete' }}</button>
 						</article>
