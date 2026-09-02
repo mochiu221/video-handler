@@ -16,6 +16,9 @@ const execFileAsync = promisify(execFile);
 
 export class FfmpegService {
   private readonly ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+  private readonly videoCodec = process.env.FFMPEG_VIDEO_CODEC || "libx264";
+  private readonly videoPreset = process.env.FFMPEG_VIDEO_PRESET || "ultrafast"; // veryfast (default), ultrafast (faster encoding, larger file size)
+  private readonly encoderThreads = process.env.FFMPEG_ENCODER_THREADS || null;
   private readonly storage = new FileStorageService();
 
   async mergeVideosToOutputs(
@@ -101,14 +104,14 @@ export class FfmpegService {
     for (const [imageIndex, image] of images.entries()) {
       const endTime = image.startTime + image.duration;
       const imageLabels = outputs.map((_, outputIndex) => `[imageSource${imageIndex}_${outputIndex}]`).join("");
-      mergeArguments.push("-loop", "1", "-framerate", "25", "-t", String(endTime), "-i", image.imagePath);
+      mergeArguments.push("-loop", "1", "-framerate", "1", "-t", String(totalDurationMs / 1000), "-i", image.imagePath);
       filterParts.push(`[${imageInputIndex}:v]split=${outputs.length}${imageLabels}`);
 
       for (const [outputIndex, output] of outputs.entries()) {
         const outputLabel = `overlayVideo${outputIndex}_${imageIndex}`;
         filterParts.push(
           `[imageSource${imageIndex}_${outputIndex}]scale=${output.options.width}:${output.options.height},setsar=1[image${outputIndex}_${imageIndex}]`,
-          `[${currentVideos[outputIndex]}][image${outputIndex}_${imageIndex}]overlay=0:0:enable='between(t,${image.startTime},${endTime})':eof_action=pass:repeatlast=0[${outputLabel}]`,
+          `[${currentVideos[outputIndex]}][image${outputIndex}_${imageIndex}]overlay=0:0:enable='gte(t,${image.startTime})*lt(t,${endTime})':eof_action=pass:repeatlast=1[${outputLabel}]`,
         );
         currentVideos[outputIndex] = outputLabel;
       }
@@ -117,7 +120,12 @@ export class FfmpegService {
 
     mergeArguments.push("-progress", "pipe:1", "-nostats", "-filter_complex", filterParts.join(";"));
     for (const [outputIndex, destination] of destinations.entries()) {
-      mergeArguments.push("-map", `[${currentVideos[outputIndex]}]`, "-map", `[outputAudio${outputIndex}]`, "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", destination);
+      mergeArguments.push(
+        "-map", `[${currentVideos[outputIndex]}]`, "-map", `[outputAudio${outputIndex}]`,
+        "-c:v", this.videoCodec, "-preset", this.videoPreset,
+        ...(this.encoderThreads !== null ? ["-threads", this.encoderThreads] : []),
+        "-c:a", "aac", destination,
+      );
     }
     console.log(mergeArguments.join(" "));
 

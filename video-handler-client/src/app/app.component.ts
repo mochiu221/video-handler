@@ -46,6 +46,7 @@ export class AppComponent {
   uploading: 'video' | 'asset' | null = null;
   deletingPath: string | null = null;
   deletingJobId: string | null = null;
+  copiedJobId: string | null = null;
   private jobRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
@@ -115,6 +116,18 @@ export class AppComponent {
         this.deletingJobId = null;
       },
     });
+  }
+
+  async copyJobDetail(job: MergeJob): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.formatJobDetail(job.detail));
+      this.copiedJobId = job.id;
+      setTimeout(() => {
+        if (this.copiedJobId === job.id) this.copiedJobId = null;
+      }, 1500);
+    } catch {
+      this.error = 'Could not copy request details.';
+    }
   }
 
   upload(type: 'video' | 'asset', event: Event): void {
