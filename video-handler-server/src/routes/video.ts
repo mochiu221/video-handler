@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import path from "node:path";
 import { CONFIG } from "../config";
-import FfmpegService from "../services/ffmpeg.service";
 import { MergeVideosRequest } from "../models/request-response/MergeVideosRequest";
 import { MergeVideoCompositionRequest } from "../models/request-response/MergeVideoCompositionRequest";
 import { MergeVideoOutput } from "../models/request-response/MergeVideoOutput";
@@ -11,26 +10,11 @@ import MergeQueue from "../services/merge-queue.service";
 import { MergeVideosBatchResult } from "../models/request-response/MergeVideosBatchResult";
 
 const router = Router();
-const ffmpegService = new FfmpegService();
 const videoExtensions = new Set([".avi", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".webm"]);
 type MergeJob =
 	| { type: "raw"; videoPaths: string[]; outputs: MergeVideoOutput[]; images: VideoImageOverlay[] }
 	| { type: "composition"; openingVideoPaths: string[]; openingImagePaths: string[]; mainVideoPath: string; mainImages: MainImage[]; endingVideoPaths: string[]; endingImagePaths: string[]; outputs: MergeVideoOutput[] };
-const mergeQueue = new MergeQueue<MergeJob, MergeVideosBatchResult>(async (job, onProgress) => {
-	if (job.type === "raw") {
-		return ffmpegService.mergeVideosToOutputs(job.videoPaths, job.outputs, job.images, onProgress);
-	}
-	return ffmpegService.mergeVideoComposition(
-		job.openingVideoPaths,
-		job.openingImagePaths,
-		job.mainVideoPath,
-		job.mainImages,
-		job.endingVideoPaths,
-		job.endingImagePaths,
-		job.outputs,
-		onProgress,
-	);
-});
+const mergeQueue = new MergeQueue<MergeJob, MergeVideosBatchResult>();
 
 router.get("/jobs", async (_request, response) => {
 	try {
@@ -50,22 +34,6 @@ router.delete("/jobs/:id", async (request, response) => {
 		response.status(204).end();
 	} catch {
 		response.status(503).json({ error: "Job store is unavailable" });
-	}
-});
-
-router.post("/thumbnail/:fileName", async (request, response) => {
-	const { fileName } = request.params;
-	if (!fileName || path.basename(fileName) !== fileName || !videoExtensions.has(path.extname(fileName).toLowerCase())) {
-		response.status(400).json({ error: "fileName must be a video file name" });
-		return;
-	}
-
-	try {
-		const thumbnailPath = await ffmpegService.createThumbnail(path.posix.join(CONFIG.upload.mergedVideosFolder, fileName));
-		response.status(201).json({ thumbnailPath });
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		response.status(code === "ENOENT" ? 404 : 500).json({ error: code === "ENOENT" ? "Video not found" : "Unable to create thumbnail" });
 	}
 });
 

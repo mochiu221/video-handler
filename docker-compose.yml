@@ -15,6 +15,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # mem_limit: 512m
+    # cpus: 0.5
     restart: unless-stopped
 
   redis:
@@ -29,6 +31,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 512m
+    cpus: 0.5
     restart: unless-stopped
 
   minio:
@@ -47,6 +51,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 1g
+    mem_reservation: 256m
+    cpus: 1
     restart: unless-stopped
 
   video-handler-client:
@@ -59,6 +66,30 @@ services:
         condition: service_healthy
     mem_limit: 256m
     cpus: 0.5
+    restart: unless-stopped
+
+  video-handler-worker:
+    build:
+      context: .
+      dockerfile: ./video-handler-worker/Dockerfile
+    environment:
+      RABBITMQ_URL: amqp://video-handler:video-handler-dev@rabbitmq:5672
+      REDIS_URL: redis://redis:6379
+      MINIO_URL: http://minio:9000
+      MINIO_BUCKET: video-handler
+      MINIO_ACCESS_KEY: video-handler
+      MINIO_SECRET_KEY: video-handler-dev
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    mem_limit: 2g
+    mem_reservation: 512m
+    cpus: 2
+    init: true
     restart: unless-stopped
 
   video-handler-server:
@@ -84,9 +115,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-    mem_limit: 2g
-    mem_reservation: 512m
-    cpus: 2
+    mem_limit: 512m
+    mem_reservation: 128m
+    cpus: 0.5
     init: true
     restart: unless-stopped
     healthcheck:

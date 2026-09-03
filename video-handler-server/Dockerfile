@@ -14,7 +14,6 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV UPLOAD_DIR=/app/uploads
 
-RUN apk add --no-cache ffmpeg
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
