@@ -6,6 +6,7 @@ type MergeJob<T> = { id: string; payload: T; detail: unknown };
 export type MergeJobStatus = {
   id: string;
   type: string;
+  payload?: unknown;
   status: "queued" | "running" | "completed" | "failed";
   progress: number;
   createdAt: string;
@@ -112,7 +113,7 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
 
   private createStatus(id: string, payload: TJob, detail: unknown): MergeJobStatus {
     const now = new Date().toISOString();
-    return { id, type: this.getJobType(payload), status: "queued", progress: 0, createdAt: now, updatedAt: now, detail };
+    return { id, type: this.getJobType(payload), payload, status: "queued", progress: 0, createdAt: now, updatedAt: now, detail };
   }
 
   private async saveStatus(status: MergeJobStatus): Promise<void> {

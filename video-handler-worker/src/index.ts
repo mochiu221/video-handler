@@ -15,7 +15,7 @@ type MergeJob =
   | { type: "raw"; videoPaths: string[]; outputs: MergeVideoOutput[]; images: VideoImageOverlay[] }
   | { type: "composition"; openingVideoPaths: string[]; openingImagePaths: string[]; mainVideoPath: string; mainImages: MainImage[]; endingVideoPaths: string[]; endingImagePaths: string[]; outputs: MergeVideoOutput[] };
 type QueueMessage = { id: string; payload: MergeJob };
-type JobStatus = { status: string; progress: number; startedAt?: string; elapsedMs?: number; runTimeMs?: number; outputs?: MergeVideosBatchResult["outputs"]; error?: string };
+type JobStatus = { status: string; progress: number; payload?: MergeJob; startedAt?: string; elapsedMs?: number; runTimeMs?: number; outputs?: MergeVideosBatchResult["outputs"]; error?: string };
 
 redis.on("error", (error) => console.error("Redis connection error", error));
 
@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   const connection = await connectRabbitMq();
   const channel = await connection.createChannel();
   await channel.assertQueue(queueName, { durable: true });
+  await recoverMissingJobs(channel); // 重啟時恢復未完成的任務
   await channel.prefetch(1);
   connection.on("error", (error) => console.error("RabbitMQ connection error", error));
   connection.on("close", () => console.error("RabbitMQ connection closed"));
@@ -31,6 +32,45 @@ async function main(): Promise<void> {
     if (message) void handleMessage(channel, message);
   });
   console.log(`Video handler worker listening on ${queueName}`);
+}
+
+async function recoverMissingJobs(channel: amqp.Channel): Promise<void> {
+  const lock = await redis.set("merge:recovery-lock", String(process.pid), { NX: true, EX: 60 });
+  if (lock !== "OK") return;
+
+  try {
+    const queuedIds = new Set<string>();
+    const queuedMessages: QueueMessage[] = [];
+    let message = await channel.get(queueName, { noAck: false });
+    while (message) {
+      const queuedJob = JSON.parse(message.content.toString()) as QueueMessage;
+      queuedIds.add(queuedJob.id);
+      queuedMessages.push(queuedJob);
+      await channel.ack(message);
+      message = await channel.get(queueName, { noAck: false });
+    }
+
+    for (const queuedJob of queuedMessages) {
+      channel.sendToQueue(queueName, Buffer.from(JSON.stringify(queuedJob)), { persistent: true });
+    }
+
+    const ids = await redis.zRange("merge:jobs", 0, -1);
+    for (const id of ids) {
+      const record = await redis.get(`merge:job:${id}`);
+      if (!record) continue;
+      const status = JSON.parse(record) as JobStatus;
+      if ((status.status !== "queued" && status.status !== "running") || !status.payload || queuedIds.has(id)) continue;
+
+      await redis.set(`merge:job:${id}`, JSON.stringify({ ...status, status: "queued", progress: 0, updatedAt: new Date().toISOString() }));
+      const recoveredJob: QueueMessage = { id, payload: status.payload };
+      if (!channel.sendToQueue(queueName, Buffer.from(JSON.stringify(recoveredJob)), { persistent: true })) {
+        throw new Error("Could not recover merge job");
+      }
+      console.log(`Recovered merge job ${id}`);
+    }
+  } finally {
+    await redis.del("merge:recovery-lock");
+  }
 }
 
 async function handleMessage(channel: amqp.Channel, message: ConsumeMessage): Promise<void> {
