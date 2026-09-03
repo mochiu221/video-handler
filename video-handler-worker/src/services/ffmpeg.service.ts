@@ -65,7 +65,7 @@ export class FfmpegService {
     images.forEach((image, imageIndex) => {
       const endTime = image.startTime + image.duration;
       const imageLabels = outputs.map((_, outputIndex) => `[imageSource${imageIndex}_${outputIndex}]`).join("");
-      mergeArguments.push("-loop", "1", "-framerate", "1", "-t", String(totalDurationMs / 1000), "-i", image.imagePath);
+      mergeArguments.push("-loop", "1", "-framerate", "1", "-t", String(endTime + 1), "-i", image.imagePath);
       filterParts.push(`[${imageInputIndex}:v]split=${outputs.length}${imageLabels}`);
       outputs.forEach((output, outputIndex) => {
         const outputLabel = `overlayVideo${outputIndex}_${imageIndex}`;

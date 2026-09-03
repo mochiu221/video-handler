@@ -65,7 +65,7 @@ export class AppComponent {
     if (view === 'merged') this.loadFiles('merged');
     if (view === 'jobs') {
       this.loadJobs();
-      this.jobRefreshTimer = setInterval(() => this.loadJobs(), 2000);
+      this.jobRefreshTimer = setInterval(() => this.loadJobs(), 5000);
     }
   }
 
