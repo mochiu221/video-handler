@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 export class FfmpegService {
   private readonly ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
   private readonly videoCodec = process.env.FFMPEG_VIDEO_CODEC || "libx264";
-  private readonly videoPreset = process.env.FFMPEG_VIDEO_PRESET || "ultrafast";
+  private readonly videoPreset = process.env.FFMPEG_VIDEO_PRESET || "ultrafast"; // use "veryfast" can reduce output file size
   private readonly encoderThreads = process.env.FFMPEG_ENCODER_THREADS || "0";
   private readonly storage = new FileStorageService();
 

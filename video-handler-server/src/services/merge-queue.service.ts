@@ -25,7 +25,7 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
   private channel?: Channel;
   private readonly ready: Promise<void>;
 
-  constructor(private readonly processJob?: (job: TJob, onProgress: (progress: number) => void) => Promise<TResult>) {
+  constructor() {
     this.redis.on("error", (error) => console.error("Redis connection error", error));
     this.ready = Promise.all([this.startRabbitMq(), this.connectRedis()]).then(() => undefined);
   }
@@ -66,12 +66,6 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
     await channel.assertQueue(this.queueName, { durable: true });
     connection.on("error", (error) => console.error("RabbitMQ connection error", error));
     connection.on("close", () => console.error("RabbitMQ connection closed"));
-    if (this.processJob) {
-      await channel.prefetch(1);
-      await channel.consume(this.queueName, (message) => {
-        if (message) void this.handleMessage(channel, message);
-      });
-    }
   }
 
   private async connectRabbitMq(): Promise<Awaited<ReturnType<typeof amqp.connect>>> {
@@ -102,31 +96,6 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
-  private elapsedMs(startedAt: string): number {
-    return Math.max(0, Date.now() - Date.parse(startedAt));
-  }
-
-  private async handleMessage(channel: Channel, message: amqp.ConsumeMessage): Promise<void> {
-    if (!this.processJob) {
-      channel.nack(message, false, true);
-      return;
-    }
-    const job = JSON.parse(message.content.toString()) as MergeJob<TJob>;
-    const status = this.createStatus(job.id, job.payload, job.detail);
-    const startedAt = new Date().toISOString();
-    await this.saveStatus({ ...status, status: "running", startedAt, updatedAt: startedAt });
-    try {
-      const result = await this.processJob(job.payload, (progress) => {
-        void this.updateStatus(job.id, { progress, elapsedMs: this.elapsedMs(startedAt) });
-      });
-      await this.updateStatus(job.id, { status: "completed", progress: 100, elapsedMs: this.elapsedMs(startedAt), runTimeMs: result.runTimeMs, outputs: result.outputs });
-    } catch (error) {
-      await this.updateStatus(job.id, { status: "failed", elapsedMs: this.elapsedMs(startedAt), error: error instanceof Error ? error.message : "Merge failed" });
-    } finally {
-      channel.ack(message);
-    }
-  }
-
   private async waitForResult(id: string, onProgress?: (progress: number) => void): Promise<TResult> {
     for (;;) {
       const record = await this.redis.get(`merge:job:${id}`);
@@ -151,12 +120,6 @@ export class MergeQueue<TJob, TResult extends { outputs: { path: string; runTime
       .set(`merge:job:${status.id}`, JSON.stringify(status))
       .zAdd("merge:jobs", { score: Date.parse(status.createdAt), value: status.id })
       .exec();
-  }
-
-  private async updateStatus(id: string, update: Partial<MergeJobStatus>): Promise<void> {
-    const record = await this.redis.get(`merge:job:${id}`);
-    if (!record) return;
-    await this.saveStatus({ ...JSON.parse(record) as MergeJobStatus, ...update, updatedAt: new Date().toISOString() });
   }
 
   private getJobType(payload: TJob): string {
