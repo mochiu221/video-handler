@@ -311,6 +311,11 @@ export class AppComponent {
     return `${this.apiUrl}/uploads/file/${file.path}`;
   }
 
+  selectedFileUrl(fileName: string, files: FileResource[]): string {
+    const file = files.find((currentFile) => currentFile.name === fileName);
+    return file ? this.fileUrl(file) : '';
+  }
+
   formatSize(bytes: number): string {
     return bytes < 1_000_000 ? `${Math.round(bytes / 1_000)} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`;
   }
