@@ -112,6 +112,7 @@ export class FfmpegService {
 
   private runFfmpeg(argumentsList: string[], totalDurationMs: number, onProgress?: (progress: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
+      console.log(`[FFmpeg] ${[this.ffmpegPath, ...argumentsList].map((argument) => JSON.stringify(argument)).join(" ")}`);
       const child = spawn(this.ffmpegPath, argumentsList);
       let stderr = "";
       let stdout = "";
